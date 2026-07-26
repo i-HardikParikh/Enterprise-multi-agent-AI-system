@@ -14,6 +14,7 @@ import re
 import structlog
 
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.messages import SystemMessage
 from agents.llm_factory import get_llm
 from graph.state import AgentState, TaskStatus, ValidationResult
 
@@ -115,7 +116,7 @@ def validator_node(state: AgentState) -> dict:
 
     llm = get_llm(temperature=0.0)
     prompt = ChatPromptTemplate.from_messages([
-        ("system", VALIDATOR_SYSTEM),
+        SystemMessage(content=VALIDATOR_SYSTEM),
         ("human", VALIDATOR_HUMAN),
     ])
     chain = prompt | llm
@@ -152,17 +153,19 @@ def validator_node(state: AgentState) -> dict:
             requires_retry=requires_retry,
         )
 
+        requires_human = not eval_result["passed"] and not requires_retry
+
         new_status = (
             TaskStatus.COMPLETED if eval_result["passed"]
             else TaskStatus.NEEDS_RETRY if requires_retry
-            else TaskStatus.FAILED
+            else TaskStatus.AWAITING_HUMAN
         )
 
         score_pct = round(score * 100, 1)
         step_msg = (
             f"✅ Validator: {score_pct}% — PASSED"
             if eval_result["passed"]
-            else f"⚠️ Validator: {score_pct}% — {'RETRY #'+str(retry_count+1) if requires_retry else 'FAILED'}"
+            else f"⚠️ Validator: {score_pct}% — {'RETRY #'+str(retry_count+1) if requires_retry else 'AWAITING HUMAN REVIEW'}"
         )
 
         logger.info("validator_node.done", score=score, passed=eval_result["passed"])
@@ -172,6 +175,7 @@ def validator_node(state: AgentState) -> dict:
             "final_output": primary_output,
             "status": new_status,
             "retry_count": retry_count + (1 if requires_retry else 0),
+            "requires_human_review": requires_human,
             "step_history": [step_msg],
         }
 
@@ -190,7 +194,16 @@ def validator_node(state: AgentState) -> dict:
 def human_review_node(state: AgentState) -> dict:
     """LangGraph node: pause for human feedback."""
     human_feedback = state.get("human_feedback")
-    if human_feedback:
+    approved = state.get("approved")
+
+    if human_feedback is not None:
+        if approved is False:
+            return {
+                "status": TaskStatus.NEEDS_RETRY,
+                "step_history": [f"⚠️ Human rejected: {human_feedback[:60]}"],
+                "requires_human_review": False,
+                "retry_count": 0,  # Reset retry counter for new iteration
+            }
         return {
             "status": TaskStatus.COMPLETED,
             "step_history": [f"✅ Human approved: {human_feedback[:60]}"],

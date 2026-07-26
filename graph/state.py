@@ -71,6 +71,7 @@ class AgentState(TypedDict):
     error_log:           Annotated[list[str], operator.add]
     requires_human_review: bool
     human_feedback:      Optional[str]
+    approved:            Optional[bool]
 
     # ── Observability ──────────────────────────────────────────────────────
     step_history:        Annotated[list[str], operator.add]

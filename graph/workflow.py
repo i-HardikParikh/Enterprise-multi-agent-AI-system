@@ -16,9 +16,11 @@ Flow:
       ├─ score < 75%  ────► planner (retry, max 3x) 🔄
       └─ needs human  ────► human_review ⏸  → END
 """
+import os
+import sqlite3
 import structlog
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.sqlite import SqliteSaver
 
 from graph.state import AgentState, TaskStatus
 from agents.planner import planner_node
@@ -58,8 +60,8 @@ def should_retry_or_end(state: AgentState) -> str:
 
 def after_human_review(state: AgentState) -> str:
     """After human review node runs."""
-    if state.get("status") == TaskStatus.AWAITING_HUMAN:
-        return "end"   # suspended — resumes when /human-review API is called
+    if state.get("approved") is False:
+        return "planner"
     return "end"
 
 # ── Build Graph ───────────────────────────────────────────────────────────────
@@ -116,21 +118,38 @@ def build_graph(checkpointer=None):
     builder.add_conditional_edges(
         "human_review",
         after_human_review,
-        {"end": END},
+        {
+            "planner": "planner",
+            "end":     END,
+        },
     )
 
-    cp = checkpointer or MemorySaver()
+    cp = checkpointer or get_checkpointer()
     return builder.compile(
         checkpointer=cp,
         interrupt_before=["human_review"],
     )
 
 
-# Singleton
+# Singleton Checkpointer & Connection
 _graph_app = None
+_checkpointer = None
+_conn = None
+
+def get_checkpointer() -> SqliteSaver:
+    global _checkpointer, _conn
+    if _checkpointer is None:
+        os.makedirs("./data", exist_ok=True)
+        db_path = "./data/checkpoints.db"
+        _conn = sqlite3.connect(db_path, check_same_thread=False)
+        _conn.execute("PRAGMA journal_mode=WAL;")
+        _checkpointer = SqliteSaver(_conn)
+        _checkpointer.setup()
+    return _checkpointer
 
 def get_graph():
     global _graph_app
     if _graph_app is None:
-        _graph_app = build_graph()
+        cp = get_checkpointer()
+        _graph_app = build_graph(checkpointer=cp)
     return _graph_app

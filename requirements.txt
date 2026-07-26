@@ -3,6 +3,8 @@ langchain>=0.2.0
 langchain-community>=0.2.0
 langchain-classic>=0.1.0
 langgraph>=0.1.0
+langgraph-checkpoint-sqlite>=3.1.0
+
 
 # ── FREE LLM Providers (pick one) ─────────────────────────────────────────────
 langchain-groq>=0.1.0            # Groq  — free, fastest (RECOMMENDED)

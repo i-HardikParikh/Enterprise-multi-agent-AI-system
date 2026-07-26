@@ -28,10 +28,45 @@ from memory.vector_store import get_vector_store
 from evals.eval_pipeline import run_evaluation
 from agents.llm_factory import get_provider_info
 
-logger = structlog.get_logger()
+import json
+import redis
+from config import get_settings
 
-# In-memory job store (replace with Redis in production)
-_jobs: dict[str, dict] = {}
+logger = structlog.get_logger()
+_settings = get_settings()
+
+try:
+    _redis_client = redis.from_url(_settings.redis_url, decode_responses=True)
+    _redis_client.ping()
+    logger.info("api.redis_connected")
+except Exception as e:
+    _redis_client = None
+    logger.warning("api.redis_unavailable — falling back to local memory dict", error=str(e))
+
+_local_jobs: dict[str, dict] = {}
+
+def get_job(job_id: str) -> dict | None:
+    if _redis_client:
+        try:
+            val = _redis_client.get(f"job:{job_id}")
+            if val:
+                return json.loads(val)
+        except Exception as e:
+            logger.warning("api.redis_get_error", job_id=job_id, error=str(e))
+    return _local_jobs.get(job_id)
+
+def set_job(job_id: str, state: dict):
+    if _redis_client:
+        try:
+            _redis_client.setex(
+                f"job:{job_id}",
+                86400,  # 24 hours TTL
+                json.dumps(dict(state), default=str)
+            )
+            return
+        except Exception as e:
+            logger.warning("api.redis_set_error", job_id=job_id, error=str(e))
+    _local_jobs[job_id] = state
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 
@@ -104,6 +139,7 @@ def _build_initial_state(req: RunRequest, job_id: str) -> AgentState:
         error_log=[],
         requires_human_review=False,
         human_feedback=None,
+        approved=None,
         step_history=[],
         total_tokens_used=0,
     )
@@ -137,7 +173,7 @@ async def run_agent(req: RunRequest):
 
     try:
         final_state = await asyncio.to_thread(graph.invoke, initial_state, config)
-        _jobs[job_id] = final_state
+        set_job(job_id, final_state)
         validation = final_state.get("validation_result")
         return RunResponse(
             job_id=job_id,
@@ -203,7 +239,7 @@ async def run_agent_stream(req: RunRequest):
 
             # Final state
             final = graph.get_state(config).values
-            _jobs[job_id] = final
+            set_job(job_id, final)
             validation = final.get("validation_result") or {}
             payload = json.dumps({
                 "job_id": job_id,
@@ -223,7 +259,7 @@ async def run_agent_stream(req: RunRequest):
 
 @app.get("/status/{job_id}", response_model=RunResponse)
 async def get_status(job_id: str):
-    state = _jobs.get(job_id)
+    state = get_job(job_id)
     if not state:
         raise HTTPException(status_code=404, detail="Job not found")
     validation = state.get("validation_result")
@@ -281,17 +317,28 @@ async def submit_human_review(req: HumanReviewRequest):
     if not state:
         raise HTTPException(status_code=404, detail="Job not found or already completed")
 
-    graph.update_state(
-        config,
-        {
-            "human_feedback": req.feedback if req.approved else f"REJECTED: {req.feedback}",
+    if req.approved:
+        state_update = {
+            "human_feedback": req.feedback,
             "requires_human_review": False,
-        },
-        as_node="human_review",
-    )
+            "approved": True,
+            "status": TaskStatus.COMPLETED,
+            "step_history": [f"✅ Human approved: {req.feedback[:60]}"],
+        }
+    else:
+        state_update = {
+            "human_feedback": req.feedback,
+            "requires_human_review": False,
+            "approved": False,
+            "status": TaskStatus.NEEDS_RETRY,
+            "retry_count": 0,
+            "step_history": [f"⚠️ Human rejected: {req.feedback[:60]}"],
+        }
+
+    graph.update_state(config, state_update, as_node="human_review")
 
     final_state = await asyncio.to_thread(graph.invoke, None, config)
-    _jobs[req.job_id] = final_state
+    set_job(req.job_id, final_state)
 
     return {
         "message": "Human review submitted. Execution resumed.",
@@ -303,7 +350,7 @@ async def submit_human_review(req: HumanReviewRequest):
 @app.post("/evaluate/{job_id}")
 async def evaluate_output(job_id: str):
     """Run the LLM-as-judge evaluation pipeline on a completed job."""
-    state = _jobs.get(job_id)
+    state = get_job(job_id)
     if not state:
         raise HTTPException(status_code=404, detail="Job not found")
 

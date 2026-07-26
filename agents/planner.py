@@ -9,6 +9,7 @@ import json
 import re
 import structlog
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.messages import SystemMessage
 
 from agents.llm_factory import get_llm
 from graph.state import AgentState, SubTask, TaskStatus
@@ -91,18 +92,22 @@ def _parse_json_response(text: str) -> dict:
 
 def planner_node(state: AgentState) -> dict:
     """LangGraph node: Planner Agent"""
-    logger.info("planner_node.start", input=state["user_input"][:80])
+    user_input = state["user_input"]
+    if state.get("human_feedback"):
+        user_input += f"\n\nHuman feedback on previous attempt: {state['human_feedback']}\nPlease adjust the tasks to address this critique."
+
+    logger.info("planner_node.start", input=user_input[:80])
 
     llm = get_llm(temperature=0.0)
     prompt = ChatPromptTemplate.from_messages([
-        ("system", PLANNER_SYSTEM),
+        SystemMessage(content=PLANNER_SYSTEM),
         ("human", PLANNER_HUMAN),
     ])
     chain = prompt | llm
 
     try:
         response = chain.invoke({
-            "user_input": state["user_input"],
+            "user_input": user_input,
             "memory_summary": state.get("memory_summary") or "No prior context.",
         })
 
@@ -138,6 +143,7 @@ def planner_node(state: AgentState) -> dict:
             "sub_tasks": sub_tasks,
             "task_dependencies": dependencies,
             "output_format": result.get("output_format", "markdown"),
+            "current_task_index": 0,
             "status": TaskStatus.IN_PROGRESS,
             "step_history": [f"✅ Planner: Created {len(sub_tasks)} sub-tasks"],
         }
@@ -158,6 +164,7 @@ def planner_node(state: AgentState) -> dict:
             "sub_tasks": fallback_tasks,
             "task_dependencies": {"t1": [], "t2": ["t1"], "t3": ["t1", "t2"]},
             "output_format": "markdown",
+            "current_task_index": 0,
             "status": TaskStatus.IN_PROGRESS,
             "error_log": [f"Planner used fallback plan: {str(e)}"],
             "step_history": [f"⚠️ Planner: Used fallback plan ({str(e)[:60]})"],
