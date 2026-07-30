@@ -13,14 +13,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: uv sync --all-groups
 
       - name: Run tests
         env:
@@ -28,12 +33,10 @@ jobs:
           LLM_PROVIDER: groq
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           LANGCHAIN_TRACING_V2: "false"
-        run: pytest tests/ -v --tb=short -q
+        run: uv run pytest tests/ -v --tb=short -q
 
       - name: Lint
-        run: |
-          pip install ruff
-          ruff check . --ignore E501,E402
+        run: uv run ruff check . --ignore E501,E402
 
   docker:
     name: Docker Build
