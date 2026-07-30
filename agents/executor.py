@@ -2,16 +2,19 @@
 agents/executor.py — Executor Agent
 
 Three executor types with specialised prompts:
-  - research: web search + RAG retrieval
+  - research: web search + RAG retrieval  (deepagents-inspired todo planning, Phase 4)
   - analysis: data analysis + DB queries
   - writer:   synthesis + document generation
 
 Uses ReAct-style prompting compatible with ALL free LLMs
 (Groq, Gemini, Ollama — no OpenAI tool-use format required).
 """
+import json
+import re
 import structlog
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_classic.agents import AgentExecutor, create_react_agent
+from langchain_core.runnables import RunnableConfig
 
 from agents.llm_factory import get_llm
 from graph.state import AgentState, TaskStatus, SubTask
@@ -56,6 +59,151 @@ Begin!"""
 
 # ── Agent Roles and Tool Sets ─────────────────────────────────────────────────
 
+# ── deepagents-Inspired Planning Prompt (Phase 4, Research only) ─────────────
+
+RESEARCH_PLANNING_SYSTEM = """You are a Research Planning Agent.
+Your job is to decompose a research task into 3–5 focused, sequential steps.
+
+For each step, choose the best tool:
+  - "web_search" — for current events, statistics, real-time data
+  - "rag_search"  — for internal documents, domain-specific knowledge
+
+Return ONLY a valid JSON array. No explanation, no markdown.
+
+Example:
+[
+  {{"step": 1, "query": "global chip shortage causes 2024", "tool": "web_search"}},
+  {{"step": 2, "query": "semiconductor supply chain internal reports", "tool": "rag_search"}},
+  {{"step": 3, "query": "TSMC production capacity forecasts 2025", "tool": "web_search"}}
+]"""
+
+RESEARCH_SYNTHESIS_SYSTEM = """You are a Research Synthesis Agent.
+You have completed a series of research steps. Each step had a query and produced an observation.
+
+Synthesize all observations into a single, coherent, well-structured answer to the original task.
+Be specific. Cite findings from different steps where appropriate.
+Respond in {output_format} format."""
+
+
+def _parse_todo_list(text: str) -> list:
+    """Extract JSON array from LLM planning response."""
+    text = re.sub(r"```(?:json)?", "", text).strip().replace("```", "").strip()
+    try:
+        result = json.loads(text)
+        if isinstance(result, list):
+            return result
+    except json.JSONDecodeError:
+        pass
+    match = re.search(r"\[.*\]", text, re.DOTALL)
+    if match:
+        try:
+            result = json.loads(match.group())
+            if isinstance(result, list):
+                return result
+        except json.JSONDecodeError:
+            pass
+    raise ValueError(f"Could not parse todo list from planning response: {text[:200]}")
+
+
+def _run_deepagent_research_executor(
+    task: SubTask,
+    context: str,
+    retrieved_context: str,
+    output_format: str,
+    config: dict = None,
+) -> dict:
+    """
+    deepagents-inspired three-phase research executor (Path B, no deepagents install).
+
+    Phase 1 — Plan (write_todos): LLM produces a structured list of 3–5 research steps.
+    Phase 2 — Execute: Each step invokes web_search or rag_search directly, collecting observations.
+    Phase 3 — Synthesise: LLM consolidates all observations into the final answer.
+
+    Returns the same dict schema as _run_executor():
+        {"task_id", "agent_type", "task_description", "output", "tool_calls"}
+    where each tool_calls entry has exactly: {"tool": str, "input": str, "output": str}
+    """
+    llm = get_llm(temperature=0.0)
+    search_tool = get_search_tool()
+    rag_tool    = get_rag_tool()
+    tool_map    = {"web_search": search_tool, "rag_search": rag_tool}
+
+    # ── Phase 1: Plan ─────────────────────────────────────────────────────────────────
+    planning_prompt = ChatPromptTemplate.from_messages([
+        ("system", RESEARCH_PLANNING_SYSTEM),
+        ("human", "Task: {task_description}\n\nPrior context: {context}\n\nReturn ONLY the JSON todo list."),
+    ])
+    planning_chain = planning_prompt | llm
+    plan_response = planning_chain.invoke(
+        {"task_description": task["description"], "context": context or "None"},
+        config,
+    )
+    raw_plan = plan_response.content if hasattr(plan_response, "content") else str(plan_response)
+    todos = _parse_todo_list(raw_plan)
+    logger.info("deepagent_research.planned", task_id=task["id"], num_todos=len(todos))
+
+    # ── Phase 2: Execute each todo ──────────────────────────────────────────────────
+    # tool_calls schema: exactly {"tool": str, "input": str, "output": str}
+    # — matches _run_executor() format (lines 117–120) character-for-character.
+    tool_calls: list[dict] = []
+    observations: list[str] = []
+
+    for todo in todos:
+        step_tool_name = todo.get("tool", "web_search")
+        step_query     = str(todo.get("query", task["description"]))[:300]
+        tool_fn        = tool_map.get(step_tool_name, search_tool)
+
+        try:
+            observation = tool_fn.invoke(step_query, config)
+        except Exception as e:
+            observation = f"Tool error ({step_tool_name}): {str(e)}"
+
+        tool_calls.append({
+            "tool":   step_tool_name,          # str
+            "input":  step_query,              # str, already truncated to 300
+            "output": str(observation)[:500],  # str, truncated to 500 — same as _run_executor
+        })
+        observations.append(f"Step {todo.get('step', '?')} [{step_tool_name}] '{step_query}':\n{observation}")
+        logger.info("deepagent_research.step_done", step=todo.get("step"), tool=step_tool_name)
+
+    # ── Phase 3: Synthesise ────────────────────────────────────────────────────────────
+    synthesis_prompt = ChatPromptTemplate.from_messages([
+        ("system", RESEARCH_SYNTHESIS_SYSTEM),
+        ("human", (
+            "Original task: {task_description}\n\n"
+            "Research observations:\n{observations}\n\n"
+            "Prior context from other agents:\n{context}\n\n"
+            "Retrieved knowledge:\n{retrieved_context}\n\n"
+            "Provide the complete synthesised answer now."
+        )),
+    ])
+    synthesis_chain = synthesis_prompt | llm
+    synthesis_response = synthesis_chain.invoke(
+        {
+            "task_description":  task["description"],
+            "observations":      "\n\n".join(observations),
+            "context":           context or "None",
+            "retrieved_context": retrieved_context or "None",
+            "output_format":     output_format,
+        },
+        config,
+    )
+    final_output = (
+        synthesis_response.content
+        if hasattr(synthesis_response, "content")
+        else str(synthesis_response)
+    )
+    logger.info("deepagent_research.synthesised", task_id=task["id"], output_chars=len(final_output))
+
+    return {
+        "task_id":          task["id"],
+        "agent_type":       "research",
+        "task_description": task["description"],
+        "output":           final_output,
+        "tool_calls":       tool_calls,
+    }
+
+
 EXECUTOR_CONFIG = {
     "research": {
         "role": "Research Executor Agent — gather accurate, relevant information",
@@ -77,7 +225,7 @@ EXECUTOR_CONFIG = {
 # ── Core Executor ─────────────────────────────────────────────────────────────
 
 def _run_executor(agent_type: str, task: SubTask, context: str,
-                  retrieved_context: str, output_format: str) -> dict:
+                  retrieved_context: str, output_format: str, config: dict = None) -> dict:
     """Run one executor agent using ReAct prompting."""
     cfg = EXECUTOR_CONFIG.get(agent_type, EXECUTOR_CONFIG["research"])
     llm = get_llm(temperature=cfg["temperature"])
@@ -109,7 +257,7 @@ def _run_executor(agent_type: str, task: SubTask, context: str,
         "tools": tools_desc,
         "tool_names": tool_names,
         "output_format": output_format,
-    })
+    }, config)
 
     tool_calls = []
     for action, observation in result.get("intermediate_steps", []):
@@ -129,7 +277,7 @@ def _run_executor(agent_type: str, task: SubTask, context: str,
 
 
 def _run_simple_executor(agent_type: str, task: SubTask, context: str,
-                          retrieved_context: str, output_format: str) -> dict:
+                          retrieved_context: str, output_format: str, config: dict = None) -> dict:
     """
     Fallback: simple LLM call without tool-use.
     Used when ReAct agent fails (e.g., Ollama small models).
@@ -156,7 +304,7 @@ Provide a detailed, well-structured response in {output_format} format."""),
         "context": context or "No prior context.",
         "retrieved_context": retrieved_context or "No retrieved documents.",
         "output_format": output_format,
-    })
+    }, config)
 
     output = response.content if hasattr(response, "content") else str(response)
     return {
@@ -169,7 +317,7 @@ Provide a detailed, well-structured response in {output_format} format."""),
 
 # ── LangGraph Node ────────────────────────────────────────────────────────────
 
-def executor_node(state: AgentState) -> dict:
+def executor_node(state: AgentState, config: RunnableConfig = None) -> dict:
     """LangGraph node: Executor Agent"""
     sub_tasks = state["sub_tasks"]
     idx = state.get("current_task_index", 0)
@@ -192,14 +340,25 @@ def executor_node(state: AgentState) -> dict:
     )
 
     try:
-        # Try ReAct agent first
-        result = _run_executor(
-            agent_type=task["agent_type"],
-            task=task,
-            context=context,
-            retrieved_context=state.get("retrieved_context") or "",
-            output_format=state.get("output_format", "markdown"),
-        )
+        # deepagents-inspired planning layer for research tasks (Phase 4, Path B)
+        if task["agent_type"] == "research":
+            result = _run_deepagent_research_executor(
+                task=task,
+                context=context,
+                retrieved_context=state.get("retrieved_context") or "",
+                output_format=state.get("output_format", "markdown"),
+                config=config,
+            )
+        else:
+            # Try ReAct agent first (analysis / writer — unchanged)
+            result = _run_executor(
+                agent_type=task["agent_type"],
+                task=task,
+                context=context,
+                retrieved_context=state.get("retrieved_context") or "",
+                output_format=state.get("output_format", "markdown"),
+                config=config,
+            )
     except Exception as e:
         logger.warning("executor_node.react_failed_trying_simple", error=str(e))
         try:
@@ -210,6 +369,7 @@ def executor_node(state: AgentState) -> dict:
                 context=context,
                 retrieved_context=state.get("retrieved_context") or "",
                 output_format=state.get("output_format", "markdown"),
+                config=config,
             )
         except Exception as e2:
             logger.error("executor_node.both_failed", error=str(e2))

@@ -15,6 +15,7 @@ import structlog
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import SystemMessage
+from langchain_core.runnables import RunnableConfig
 from agents.llm_factory import get_llm
 from graph.state import AgentState, TaskStatus, ValidationResult
 
@@ -94,7 +95,7 @@ def _parse_validation_json(text: str) -> dict:
 
 # ── Node ──────────────────────────────────────────────────────────────────────
 
-def validator_node(state: AgentState) -> dict:
+def validator_node(state: AgentState, config: RunnableConfig = None) -> dict:
     """LangGraph node: Validator Agent"""
     logger.info("validator_node.start", retry_count=state.get("retry_count", 0))
 
@@ -127,7 +128,7 @@ def validator_node(state: AgentState) -> dict:
             "retrieved_context": (state.get("retrieved_context") or "Not available")[:2000],
             "final_output": primary_output[:4000],
             "output_format": state.get("output_format", "markdown"),
-        })
+        }, config)
 
         raw_text = response.content if hasattr(response, "content") else str(response)
         eval_result = _parse_validation_json(raw_text)
@@ -141,6 +142,28 @@ def validator_node(state: AgentState) -> dict:
         )
 
         retry_count = state.get("retry_count", 0)
+
+        # Log to Langfuse
+        try:
+            trace_id = None
+            if config:
+                trace_id = config.get("configurable", {}).get("trace_id") or config.get("configurable", {}).get("thread_id")
+            if not trace_id:
+                trace_id = state.get("session_id")
+            
+            from graph.observability import log_validation_score
+            log_validation_score(
+                trace_id=trace_id,
+                accuracy=eval_result["factual_accuracy"],
+                completion=eval_result["task_completion"],
+                compliance=eval_result["format_compliance"],
+                overall=score,
+                passed=eval_result["passed"],
+                retry_count=retry_count
+            )
+        except Exception as le:
+            logger.warning("validator_node.langfuse_log_failed", error=str(le))
+
         requires_retry = not eval_result["passed"] and retry_count < MAX_RETRIES
 
         validation = ValidationResult(
@@ -181,11 +204,23 @@ def validator_node(state: AgentState) -> dict:
 
     except Exception as e:
         logger.error("validator_node.error", error=str(e))
+        p_out = primary_output if "primary_output" in locals() else ""
+        validation = ValidationResult(
+            passed=False,
+            score=0.0,
+            factual_accuracy=0.0,
+            task_completion=0.0,
+            format_compliance=0.0,
+            feedback=f"Validator crashed: {str(e)}",
+            requires_retry=False,
+        )
         return {
+            "validation_result": validation,
             "error_log": [f"Validator error: {str(e)}"],
-            "final_output": primary_output,
-            "status": TaskStatus.COMPLETED,
-            "step_history": [f"⚠️ Validator crashed — output saved anyway: {str(e)[:60]}"],
+            "final_output": p_out,
+            "status": TaskStatus.AWAITING_HUMAN,
+            "requires_human_review": True,
+            "step_history": [f"⚠️ Validator crashed — routing to human review: {str(e)[:60]}"],
         }
 
 

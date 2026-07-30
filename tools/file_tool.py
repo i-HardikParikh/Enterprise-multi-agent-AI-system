@@ -22,7 +22,11 @@ def read_file(file_path: str) -> str:
         File contents as text
     """
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    full = UPLOAD_DIR / file_path
+    base = UPLOAD_DIR.resolve()
+    full = (base / file_path).resolve()
+    if not full.is_relative_to(base):
+        return "Error: Path traversal detected. Access denied."
+
     if not full.exists():
         available = [f.name for f in UPLOAD_DIR.iterdir()] if UPLOAD_DIR.exists() else []
         return f"File '{file_path}' not found. Available: {available}"
@@ -60,7 +64,11 @@ def save_output(filename: str, content: str) -> str:
         Confirmation message with path
     """
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    path = OUTPUT_DIR / filename
+    base = OUTPUT_DIR.resolve()
+    path = (base / filename).resolve()
+    if not path.is_relative_to(base):
+        return "Error: Path traversal detected. Access denied."
+
     path.write_text(content, encoding="utf-8")
     logger.info("save_output.done", path=str(path), size=len(content))
     return f"Saved: {path}  ({len(content):,} chars)"

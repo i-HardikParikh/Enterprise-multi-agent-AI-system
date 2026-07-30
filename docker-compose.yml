@@ -1,9 +1,9 @@
-version: "3.9"
-
 services:
 
   api:
-    build: .
+    build:
+      context: .
+      target: api
     ports:
       - "8000:8000"
     env_file:
@@ -14,6 +14,8 @@ services:
       - ./data:/app/data          # persist FAISS index + uploads
     depends_on:
       redis:
+        condition: service_healthy
+      app-db:
         condition: service_healthy
     restart: unless-stopped
 
@@ -30,6 +32,92 @@ services:
       retries: 5
     restart: unless-stopped
 
+  langfuse-db:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=${LANGFUSE_DB_USER:-postgres}
+      - POSTGRES_PASSWORD=${LANGFUSE_DB_PASSWORD:-postgres}
+      - POSTGRES_DB=${LANGFUSE_DB_NAME:-langfuse}
+    volumes:
+      - langfuse_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-langfuse}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  langfuse:
+    image: langfuse/langfuse:2
+    ports:
+      - "4000:3000"
+    environment:
+      - DATABASE_URL=postgresql://${LANGFUSE_DB_USER:-postgres}:${LANGFUSE_DB_PASSWORD:-postgres}@langfuse-db:5432/${LANGFUSE_DB_NAME:-langfuse}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-mysecret}
+      - NEXTAUTH_URL=http://localhost:4000
+      - SALT=${SALT:-mysalt}
+      - TELEMETRY_ENABLED=false
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+
+  aegra-db:
+    image: postgres:16-alpine
+    ports:
+      - "5433:5432"
+    environment:
+      - POSTGRES_USER=${AEGRA_DB_USER:-postgres}
+      - POSTGRES_PASSWORD=${AEGRA_DB_PASSWORD:-postgres}
+      - POSTGRES_DB=${AEGRA_DB_NAME:-aegra}
+    volumes:
+      - aegra_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-aegra}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  aegra:
+    build:
+      context: .
+      target: aegra
+    ports:
+      - "8001:8000"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://${AEGRA_DB_USER:-postgres}:${AEGRA_DB_PASSWORD:-postgres}@aegra-db:5432/${AEGRA_DB_NAME:-aegra}
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      aegra-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: [".venv/bin/aegra", "dev", "--no-db-check"]
+    restart: unless-stopped
+
+  app-db:
+    image: pgvector/pgvector:pg16
+    ports:
+      - "5434:5432"
+    environment:
+      - POSTGRES_USER=${DB_USER:-postgres}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-postgres}
+      - POSTGRES_DB=${DB_NAME:-enterprise_app}
+    volumes:
+      - app_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-enterprise_app}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   # ── Optional: Ollama (uncomment if using LLM_PROVIDER=ollama) ─────────────
   # ollama:
   #   image: ollama/ollama
@@ -40,6 +128,17 @@ services:
   #   restart: unless-stopped
   #   # After starting, run: docker exec -it <container> ollama pull llama3.2
 
+  # ── NOTE: Aegra runs on the HOST (not in Docker) ───────────────────────────
+  # aegra-cli is a host-side CLI tool. After `docker-compose up`, start Aegra
+  # from your terminal:
+  #   uv add aegra-cli
+  #   aegra dev
+  # Aegra reads aegra.json + .env and connects to aegra-db on localhost:5433.
+
 volumes:
   redis_data:
+  langfuse_db_data:
+  aegra_db_data:
+  app_db_data:
   # ollama_data:
+

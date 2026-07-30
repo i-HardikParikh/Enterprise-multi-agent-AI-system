@@ -8,10 +8,29 @@ import type {
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+// Helper to get headers with Authorization if token is set in localStorage or env
+function getHeaders(extraHeaders: Record<string, string> = {}): Record<string, string> {
+  const headers: Record<string, string> = { ...extraHeaders };
+  let token = process.env.NEXT_PUBLIC_API_KEY || "";
+  if (typeof window !== "undefined") {
+    const localToken = localStorage.getItem("api_token");
+    if (localToken) {
+      token = localToken;
+    }
+  }
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
 // ── Health ─────────────────────────────────────────────────────────────────
 
 export async function fetchHealth(): Promise<HealthResponse> {
-  const res = await fetch(`${BASE}/health`, { cache: "no-store" });
+  const res = await fetch(`${BASE}/health`, {
+    headers: getHeaders(),
+    cache: "no-store",
+  });
   if (!res.ok) throw new Error("API unavailable");
   return res.json();
 }
@@ -21,7 +40,7 @@ export async function fetchHealth(): Promise<HealthResponse> {
 export async function runAgent(req: RunRequest): Promise<RunResponse> {
   const res = await fetch(`${BASE}/run`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(req),
   });
   if (!res.ok) {
@@ -44,7 +63,7 @@ export function streamAgent(
     try {
       const res = await fetch(`${BASE}/run/stream`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(req),
       });
 
@@ -92,7 +111,10 @@ export function streamAgent(
 // ── Status ─────────────────────────────────────────────────────────────────
 
 export async function fetchJobStatus(jobId: string): Promise<RunResponse> {
-  const res = await fetch(`${BASE}/status/${jobId}`, { cache: "no-store" });
+  const res = await fetch(`${BASE}/status/${jobId}`, {
+    headers: getHeaders(),
+    cache: "no-store",
+  });
   if (!res.ok) throw new Error("Job not found");
   return res.json();
 }
@@ -102,7 +124,11 @@ export async function fetchJobStatus(jobId: string): Promise<RunResponse> {
 export async function uploadDocument(file: File): Promise<{ message: string }> {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${BASE}/upload`, { method: "POST", body: form });
+  const res = await fetch(`${BASE}/upload`, {
+    method: "POST",
+    headers: getHeaders(),
+    body: form,
+  });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || "Upload failed");
@@ -119,7 +145,7 @@ export async function submitHumanReview(
 ): Promise<{ message: string; status: string }> {
   const res = await fetch(`${BASE}/human-review`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ job_id: jobId, feedback, approved }),
   });
   if (!res.ok) throw new Error("Human review failed");
@@ -129,7 +155,10 @@ export async function submitHumanReview(
 // ── Evaluate ───────────────────────────────────────────────────────────────
 
 export async function evaluateJob(jobId: string): Promise<EvalResult> {
-  const res = await fetch(`${BASE}/evaluate/${jobId}`, { method: "POST" });
+  const res = await fetch(`${BASE}/evaluate/${jobId}`, {
+    method: "POST",
+    headers: getHeaders(),
+  });
   if (!res.ok) throw new Error("Evaluation failed");
   return res.json();
 }

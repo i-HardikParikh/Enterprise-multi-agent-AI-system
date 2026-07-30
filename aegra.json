@@ -1,0 +1,9 @@
+{
+  "graphs": {
+    "agent": "./graph/workflow.py:graph"
+  },
+  "http": {
+    "app": "./api/main.py:app",
+    "enable_custom_route_auth": false
+  }
+}

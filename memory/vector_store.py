@@ -1,19 +1,16 @@
 """
-memory/vector_store.py — Vector Store + RAG Memory
-
-FREE embeddings: HuggingFace sentence-transformers (no API key needed)
-Supports:
-  - FAISS     (local, free, no account)
-  - Pinecone  (cloud, optional upgrade)
-
-LangGraph node: retrieval_node
+memory/vector_store.py — Vector Store + RAG Memory using PostgreSQL pgvector
 """
 import os
+import json
 import structlog
 from pathlib import Path
-from langchain_community.vectorstores import FAISS
+import psycopg
+from psycopg.rows import dict_row
+
 from langchain_community.document_loaders import TextLoader, PyPDFLoader, CSVLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_core.documents import Document
 
 from config import get_settings
 from graph.state import AgentState
@@ -42,44 +39,44 @@ def get_embeddings():
     )
 
 
-# ── FAISS Vector Store ────────────────────────────────────────────────────────
+# ── PostgreSQL pgvector Store ──────────────────────────────────────────────────
 
-class FAISSVectorStore:
-    """Persistent local FAISS store — saves index to disk between runs."""
+class PGVectorStore:
+    """Persistent pgvector store in PostgreSQL."""
 
     def __init__(self):
-        self.index_path = settings.faiss_index_path
-        self._store = None
-        Path(self.index_path).parent.mkdir(parents=True, exist_ok=True)
+        self.embeddings = get_embeddings()
 
-    def _load_or_create(self):
-        if self._store:
-            return self._store
+    def _get_conn(self) -> psycopg.Connection:
+        from config import get_settings
+        settings = get_settings()
+        conn = psycopg.connect(settings.db_url, row_factory=dict_row)
+        return conn
 
-        embeddings = get_embeddings()
-
-        if Path(self.index_path).exists():
-            logger.info("faiss.loading_existing_index")
-            self._store = FAISS.load_local(
-                self.index_path,
-                embeddings,
-                allow_dangerous_deserialization=True,
-            )
-        else:
-            logger.info("faiss.creating_new_index")
-            from langchain_core.documents import Document
-            self._store = FAISS.from_documents(
-                [Document(
-                    page_content="Enterprise AI System Knowledge Base initialised.",
-                    metadata={"source": "system_init"},
-                )],
-                embeddings,
-            )
-            self._store.save_local(self.index_path)
-
-        return self._store
+    def setup(self):
+        """Create vector extension, table, and HNSW index if they don't exist."""
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS embeddings (
+                        id SERIAL PRIMARY KEY,
+                        content TEXT NOT NULL,
+                        metadata JSONB,
+                        embedding VECTOR(384)
+                    );
+                """)
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS embeddings_hnsw_idx 
+                    ON embeddings USING hnsw (embedding vector_cosine_ops);
+                """)
+                conn.commit()
+        finally:
+            conn.close()
 
     def add_documents(self, file_path: str) -> int:
+        self.setup()
         ext = Path(file_path).suffix.lower()
         loader_map = {".pdf": PyPDFLoader, ".txt": TextLoader, ".csv": CSVLoader}
         loader_cls = loader_map.get(ext, TextLoader)
@@ -91,53 +88,61 @@ class FAISSVectorStore:
             separators=["\n\n", "\n", ". ", " ", ""],
         )
         chunks = splitter.split_documents(docs)
+        if not chunks:
+            return 0
 
-        store = self._load_or_create()
-        store.add_documents(chunks)
-        store.save_local(self.index_path)
+        texts = [c.page_content for c in chunks]
+        vectors = self.embeddings.embed_documents(texts)
 
-        logger.info("faiss.documents_added", file=file_path, chunks=len(chunks))
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                for chunk, vector in zip(chunks, vectors):
+                    meta = chunk.metadata.copy()
+                    if "source" not in meta:
+                        meta["source"] = Path(file_path).name
+                    cur.execute(
+                        "INSERT INTO embeddings (content, metadata, embedding) VALUES (%s, %s, %s);",
+                        (chunk.page_content, json.dumps(meta), vector)
+                    )
+                conn.commit()
+        finally:
+            conn.close()
+
+        logger.info("pgvector.documents_added", file=file_path, chunks=len(chunks))
         return len(chunks)
 
     def similarity_search(self, query: str, k: int = 4) -> list:
-        store = self._load_or_create()
-        return store.similarity_search(query, k=k)
+        self.setup()
+        query_vector = self.embeddings.embed_query(query)
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                # Seed with initial document if table is empty
+                cur.execute("SELECT COUNT(*) AS count FROM embeddings;")
+                if cur.fetchone()["count"] == 0:
+                    initial_content = "Enterprise AI System Knowledge Base initialised."
+                    initial_vector = self.embeddings.embed_query(initial_content)
+                    cur.execute(
+                        "INSERT INTO embeddings (content, metadata, embedding) VALUES (%s, %s, %s);",
+                        (initial_content, json.dumps({"source": "system_init"}), initial_vector)
+                    )
+                    conn.commit()
 
-
-# ── Pinecone Vector Store (optional upgrade) ──────────────────────────────────
-
-class PineconeVectorStore:
-    def __init__(self):
-        from pinecone import Pinecone
-        self.pc = Pinecone(api_key=settings.pinecone_api_key)
-        self._store = None
-
-    def _get_store(self):
-        if not self._store:
-            # pyrefly: ignore [missing-import]
-            from langchain_pinecone import PineconeVectorStore as LCPinecone
-            self._store = LCPinecone(
-                index=self.pc.Index(settings.pinecone_index_name),
-                embedding=get_embeddings(),
-            )
-        return self._store
-
-    def add_documents(self, file_path: str) -> int:
-        docs = TextLoader(file_path).load()
-        chunks = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200).split_documents(docs)
-        self._get_store().add_documents(chunks)
-        return len(chunks)
-
-    def similarity_search(self, query: str, k: int = 4) -> list:
-        return self._get_store().similarity_search(query, k=k)
+                cur.execute(
+                    "SELECT content, metadata FROM embeddings ORDER BY embedding <=> %s::vector LIMIT %s;",
+                    (query_vector, k)
+                )
+                rows = cur.fetchall()
+                return [Document(page_content=r["content"], metadata=r["metadata"]) for r in rows]
+        finally:
+            conn.close()
 
 
 # ── Factory ───────────────────────────────────────────────────────────────────
 
 def get_vector_store():
-    if settings.vector_store == "pinecone":
-        return PineconeVectorStore()
-    return FAISSVectorStore()
+    return PGVectorStore()
 
 
 # ── Redis Session Memory ──────────────────────────────────────────────────────
@@ -191,7 +196,7 @@ def retrieval_node(state: AgentState) -> dict:
     Writes: state.retrieved_context, state.memory_summary
     """
     logger.info("retrieval_node.start")
-    user_input = state["user_input"]
+    user_input = state.get("user_input", "")
     session_id = state.get("session_id", "default")
 
     # 1. RAG retrieval

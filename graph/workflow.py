@@ -19,8 +19,12 @@ Flow:
 import os
 import sqlite3
 import structlog
+import threading
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.sqlite import SqliteSaver
+from psycopg_pool import ConnectionPool
+from langgraph.checkpoint.postgres import PostgresSaver
+from psycopg.rows import dict_row
 
 from graph.state import AgentState, TaskStatus
 from agents.planner import planner_node
@@ -131,20 +135,28 @@ def build_graph(checkpointer=None):
     )
 
 
-# Singleton Checkpointer & Connection
+# Singleton Checkpointer & Connection Pool
 _graph_app = None
 _checkpointer = None
-_conn = None
+_pool = None
+_checkpointer_lock = threading.Lock()
 
-def get_checkpointer() -> SqliteSaver:
-    global _checkpointer, _conn
+def get_checkpointer() -> PostgresSaver:
+    global _checkpointer, _pool
     if _checkpointer is None:
-        os.makedirs("./data", exist_ok=True)
-        db_path = "./data/checkpoints.db"
-        _conn = sqlite3.connect(db_path, check_same_thread=False)
-        _conn.execute("PRAGMA journal_mode=WAL;")
-        _checkpointer = SqliteSaver(_conn)
-        _checkpointer.setup()
+        with _checkpointer_lock:
+            if _checkpointer is None:
+                from config import get_settings
+                settings = get_settings()
+                logger.info("postgres.checkpointer_connecting", db_url=settings.db_url)
+                _pool = ConnectionPool(
+                    conninfo=settings.db_url,
+                    max_size=10,
+                    open=True,
+                    kwargs={"autocommit": True, "row_factory": dict_row}
+                )
+                _checkpointer = PostgresSaver(_pool)
+                _checkpointer.setup()
     return _checkpointer
 
 def get_graph():
@@ -153,3 +165,5 @@ def get_graph():
         cp = get_checkpointer()
         _graph_app = build_graph(checkpointer=cp)
     return _graph_app
+
+graph = get_graph()

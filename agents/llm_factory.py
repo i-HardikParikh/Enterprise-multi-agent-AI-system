@@ -45,7 +45,7 @@ def get_llm(temperature: float = 0.0, streaming: bool = False):
             )
         except ImportError:
             raise ImportError(
-                "Groq not installed. Run: pip install langchain-groq"
+                "Groq not installed. Run: uv add langchain-groq"
             )
 
     # ── Google Gemini (free 1500 req/day) ─────────────────────────────────────
@@ -61,7 +61,7 @@ def get_llm(temperature: float = 0.0, streaming: bool = False):
             )
         except ImportError:
             raise ImportError(
-                "Google GenAI not installed. Run: pip install langchain-google-genai"
+                "Google GenAI not installed. Run: uv add langchain-google-genai"
             )
 
     # ── Ollama (100% local, no internet, no API key) ───────────────────────────

@@ -10,6 +10,7 @@ import re
 import structlog
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import SystemMessage
+from langchain_core.runnables import RunnableConfig
 
 from agents.llm_factory import get_llm
 from graph.state import AgentState, SubTask, TaskStatus
@@ -90,7 +91,7 @@ def _parse_json_response(text: str) -> dict:
 
 # ── Node ──────────────────────────────────────────────────────────────────────
 
-def planner_node(state: AgentState) -> dict:
+def planner_node(state: AgentState, config: RunnableConfig = None) -> dict:
     """LangGraph node: Planner Agent"""
     user_input = state["user_input"]
     if state.get("human_feedback"):
@@ -109,7 +110,7 @@ def planner_node(state: AgentState) -> dict:
         response = chain.invoke({
             "user_input": user_input,
             "memory_summary": state.get("memory_summary") or "No prior context.",
-        })
+        }, config)
 
         raw_text = response.content if hasattr(response, "content") else str(response)
         result = _parse_json_response(raw_text)

@@ -1,0 +1,15 @@
+.venv/
+venv/
+.git/
+.pytest_cache/
+__pycache__/
+data/
+data/faiss_index/
+data/uploads/
+data/outputs/
+data/checkpoints.db
+data/enterprise.db
+frontend/
+node_modules/
+.next/
+*.log

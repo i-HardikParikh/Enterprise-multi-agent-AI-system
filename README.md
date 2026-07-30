@@ -4,10 +4,14 @@
 [![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688?logo=fastapi&logoColor=white&style=flat-square)](https://fastapi.tiangolo.com)
 [![Next.js 14](https://img.shields.io/badge/Frontend-Next.js%2014-000000?logo=nextdotjs&logoColor=white&style=flat-square)](https://nextjs.org)
 [![Docker](https://img.shields.io/badge/Deployment-Docker-2496ED?logo=docker&logoColor=white&style=flat-square)](https://www.docker.com)
+[![uv](https://img.shields.io/badge/PackageManager-uv-DE5FE9?style=flat-square)](https://docs.astral.sh/uv/)
+[![Langfuse](https://img.shields.io/badge/Observability-Langfuse-FF6C37?style=flat-square)](https://langfuse.com)
+[![Aegra](https://img.shields.io/badge/AgentProtocol-Aegra-7C3AED?style=flat-square)](https://aegra.dev)
+[![Tests](https://img.shields.io/badge/Tests-67%20passed-brightgreen?style=flat-square)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 
-> A production-grade, local-first multi-agent AI system designed for enterprise-scale workflow automation. Built on top of **LangGraph**, it features a robust **Planner → Executor → Validator** pipeline with integrated RAG, persistent Redis-based session memory, automated LLM-as-judge evaluation metrics, Server-Sent Events (SSE) streaming updates, and full containerization.
-> 
+> A production-grade, local-first multi-agent AI system designed for enterprise-scale workflow automation. Built on **LangGraph**, it features a **Planner → Executor → Validator** pipeline with integrated **pgvector (PostgreSQL)** RAG, persistent Redis-based session memory, automated LLM-as-judge evaluation, SSE streaming, full containerization, self-hosted observability tracing, and Agent Protocol compatibility.
+>
 > **Works 100% free** using Groq, Gemini, or Ollama for LLM tasks, and HuggingFace for local embeddings.
 
 ---
@@ -16,30 +20,30 @@
 
 ```
                  User Input / Query
-                         │
-                         ▼
-     [Memory & RAG Retrieval Node] ◄─── FAISS (Local) / Pinecone (Cloud)
-                         │              Redis Session Memory (History)
-                         ▼
-             [Planner Agent Node]  ◄─── Decomposes input into dependency
-                         │              graph / sub-tasks (JSON format)
-                         ▼
-          ┌───► [Executor Agent Loop]
-          │      Loops through all sub-tasks in dependency order:
-          │        ├── 🔍 Research  (Web Search + RAG Retrieval)
-          │        ├── 📊 Analysis  (SQL Database Queries + Insights)
-          │        └── ✍️ Writer    (Synthesis + Markdown Formatting)
-          │              │
-          │              ▼
-          │     [Validator Agent Node] ◄─── LLM-as-Judge validation (3 axes)
-          │              │
-          │              ├─► Score ≥ 75% ──► Final Output ✅ ──► END
-          │              ├─► Score < 75% ──► Auto-Retry (Max 3x) 🔄 ──┐
-          │              │                                           │
-          │              └─► Flagged/Unsure ──► Human-in-the-Loop ⏸   │
-          │                                           │              │
-          │                                           ▼              │
-          └─────────────────────────── Resumes with feedback ◄───────┘
+                          │
+                          ▼
+      [Memory & RAG Retrieval Node] ◄─── PostgreSQL (pgvector)
+                          │              Redis Session Memory (History)
+                          ▼
+              [Planner Agent Node]  ◄─── Decomposes input into dependency
+                          │              graph / sub-tasks (JSON format)
+                          ▼
+           ┌───► [Executor Agent Loop]
+           │      Loops through all sub-tasks in dependency order:
+           │        ├── 🔍 Research  (Write-Todos Planning + Web Search + pgvector RAG)
+           │        ├── 📊 Analysis  (PostgreSQL Database Queries + Insights)
+           │        └── ✍️ Writer    (Synthesis + Markdown Formatting)
+           │              │
+           │              ▼
+           │     [Validator Agent Node] ◄─── LLM-as-Judge validation (3 axes)
+           │              │
+           │              ├─► Score ≥ 75% ──► Final Output ✅ ──► END
+           │              ├─► Score < 75% ──► Auto-Retry (Max 3x) 🔄 ──┐
+           │              │                                          │
+           │              └─► Flagged/Unsure ──► Human-in-the-Loop ⏸   │
+           │                                          │              │
+           │                                          ▼              │
+           └─────────────────────────── Resumes with feedback ◄───────┘
 ```
 
 ---
@@ -47,30 +51,29 @@
 ## ✨ Features
 
 - **Cyclic Agentic Workflows**: Built on **LangGraph** to govern agent state transitions, manage iterative retry loops, and implement interrupts for Human-in-the-Loop (HITL) checkpoints.
-- **Sub-task Dependency Resolution**: The **Planner Agent** parses the primary user request and outputs a structured JSON DAG (Directed Acyclic Graph) of sub-tasks with mapped execution dependencies.
+- **Unified PostgreSQL Storage**: Relational tables (`users`, `sales`, `employees`), checkpointer states (`PostgresSaver`), and vector embeddings (`pgvector`) are consolidated into a high-performance PostgreSQL instance.
+- **Sub-task Dependency Resolution**: The **Planner Agent** parses the primary user request and outputs a structured JSON DAG of sub-tasks with mapped execution dependencies.
 - **Specialized Executors**:
-  - `research`: Gathers data using web searches and RAG retrieval.
-  - `analysis`: Queries a structured database and provides data analysis.
+  - `research`: Structured write-todos planning (3-phase: Plan → Execute → Synthesize) using web search and pgvector RAG retrieval.
+  - `analysis`: Queries a structured PostgreSQL database (with comment-stripping guardrails) and provides data analysis.
   - `writer`: Synthesizes execution results into a comprehensive output document.
-- **LLM-as-Judge Evaluation**: Integrated pipeline that grades generated outputs across three dimensions: *Factual Accuracy*, *Task Completion*, and *Format Compliance*. An overall weighted score determines whether the output passes, retries, or escalates for human intervention.
-- **RAG & Memory Integration**:
-  - **Vector Stores**: Supports local **FAISS** (zero configuration) or cloud-hosted **Pinecone**.
-  - **Free Embeddings**: Uses **HuggingFace** sentence-transformers (`all-MiniLM-L6-v2`) running locally.
-  - **Session Memory**: Employs **Redis** to store and summarize user session conversation context.
-- **Asynchronous Execution & SSE Streaming**: Built using FastAPI to support asynchronous job state tracking, Server-Sent Events (SSE) updates for step-by-step UI visualization, and back-grounded document ingestion.
-- **Modern Next.js Dashboard**: Dynamic dashboard interface displaying an animated agent pipeline visualization, live timestamped logs, structured output views (with markdown rendering and raw JSON tabs), document uploader, history search, and provider status indicators.
+- **deepagents-Inspired Research Planning**: The research executor implements a structured multi-step planning pattern (`write_todos`), decomposing tasks into sequential JSON steps executed tool-by-tool with full observability tracing.
+- **LLM-as-Judge Evaluation**: Grades outputs across three dimensions: *Factual Accuracy*, *Task Completion*, and *Format Compliance*. The overall weighted score determines whether output passes, retries, or escalates for human intervention.
+- **RAG & Memory Integration**: High-dimensional vector search using `pgvector` with HNSW cosine distance indexes; **HuggingFace** sentence-transformers locally; **Redis** session memory.
+- **Agent Protocol Compliance**: Full `/assistants`, `/threads`, `/runs` REST API. Concurrent run guards, Redis TTL expiry, and HITL resume via both legacy and Agent Protocol paths.
+- **Self-Hosted Observability** (Langfuse v2): Full LLM trace capture across all agent nodes. Validation scores and HITL events published as structured Langfuse scores.
+- **Aegra Integration**: Standalone Agent Protocol compatibility layer for LangGraph Studio. Runs fully decoupled — separate Postgres DB, separate port, separate Docker stage.
+- **uv Dependency Management**: All dependencies managed via `uv` with exact version pins in `pyproject.toml` and a reproducible `uv.lock` lockfile. Cross-platform Docker builds use `uv sync --frozen`.
 
 ---
 
 ## 🆓 Free LLM Providers
 
-This system is configured to support free LLM APIs and local inference engines:
-
 | Provider | Model | Setup Time | Usage Limits | Description |
 |---|---|---|---|---|
 | **Groq** ⭐ | `llama-3.3-70b-versatile` | 2 min | Generous free tier | **Recommended** — Extremely fast inference, excellent tool use capabilities. |
 | **Google Gemini** | `gemini-1.5-flash` | 2 min | 1500 req/day | High performance, very long context window. |
-| **Ollama** | `llama3.2` | 5 min | Unlimited (Local) | Runs completely locally on your hardware. Great for privacy and offline usage. |
+| **Ollama** | `llama3.2` | 5 min | Unlimited (Local) | Runs completely locally on your hardware. |
 
 ---
 
@@ -79,43 +82,39 @@ This system is configured to support free LLM APIs and local inference engines:
 ```
 Enterprise-multi-agent-AI-system/
 ├── agents/
-│   ├── __init__.py
-│   ├── executor.py         # Specialized Research, Analysis, & Writer Executors (ReAct format)
+│   ├── executor.py         # Research (write-todos planner), Analysis & Writer executors
 │   ├── llm_factory.py      # Configures LangChain models for Groq / Gemini / Ollama
 │   ├── planner.py          # Decomposes user request into sub-tasks (JSON plan)
 │   └── validator.py        # Evaluates output quality & processes Human-in-the-Loop review
+├── aegra.json              # Aegra self-hosted Agent Protocol deployment config
 ├── api/
-│   ├── __init__.py
-│   └── main.py             # FastAPI App with SSE streaming, file upload, & job status
+│   └── main.py             # FastAPI App: SSE streaming, Agent Protocol endpoints, HITL
+├── auth/
+│   └── models.py           # PostgreSQL-backed JWT user credentials and migration schemas
 ├── config.py               # Pydantic base settings loaded from environment
 ├── data/
-│   ├── checkpoints.db      # Persistent SQLite db storing LangGraph workflow states
-│   ├── enterprise.db       # SQLite business DB auto-seeded with sales & employee tables
-│   ├── faiss_index/        # Local FAISS index files
 │   ├── uploads/            # Ingested PDF, TXT, and CSV documents
 │   └── outputs/            # Saved markdown/JSON agent output reports
-├── docker-compose.yml      # Orchestrates FastAPI app and Redis container services
-├── Dockerfile              # multi-stage python container build (pre-downloads HF model)
+├── docker-compose.yml      # Orchestrates all 7 services (api, redis, langfuse, aegra, dbs)
+├── Dockerfile              # Multi-stage build: api (py3.11) + aegra (py3.12)
+├── .dockerignore           # Excludes .venv, data, frontend from Docker build context
 ├── evals/
-│   ├── __init__.py
 │   └── eval_pipeline.py    # Offline evaluation engine measuring 4 quality dimensions
 ├── frontend/               # Next.js 14 frontend dashboard
 ├── graph/
-│   ├── __init__.py
+│   ├── observability.py    # Langfuse tracing: callbacks, safe_uuid, score publishers
 │   ├── state.py            # TypedDict defining AgentState shared variables
 │   └── workflow.py         # LangGraph state machine flow definitions & transitions
 ├── memory/
-│   ├── __init__.py
-│   └── vector_store.py     # Embeddings factory, FAISS/Pinecone vectors, & Redis memory
-├── requirements.txt        # Backend python dependencies list
+│   └── vector_store.py     # Embeddings factory, pgvector databases, & Redis memory
+├── pyproject.toml          # uv project config with exact version pins
+├── uv.lock                 # Reproducible lockfile (189 packages)
 ├── tests/
-│   ├── __init__.py
-│   └── test_agents.py      # Unit, integration, routing, and api tests (pytest)
+│   └── test_agents.py      # 67 unit, integration, routing, API, and observability tests
 └── tools/
-    ├── __init__.py
-    ├── db_tool.py          # SQLite SELECT execution & metadata query tools
+    ├── db_tool.py          # PostgreSQL SELECT execution & metadata query tools
     ├── file_tool.py        # File read, directory search, & output write tools
-    ├── rag_tool.py         # Local/Pinecone vector semantic query search
+    ├── rag_tool.py         # pgvector semantic query search
     └── search_tool.py      # Internet search (SerpAPI with DuckDuckGo free fallback)
 ```
 
@@ -130,155 +129,188 @@ cd Enterprise-multi-agent-AI-system
 ```
 
 ### 2. Configure Environment Variables
-Create a `.env` file in the root directory:
+```bash
+cp .env.example .env
+# Edit .env — set your LLM API key and database settings
+```
+
+#### Minimum Required Settings:
 ```bash
 # Pick your LLM Provider: groq | gemini | ollama
 LLM_PROVIDER=groq
-
-# ── Option A: Groq (Recommended - Free & Fast) ──
 GROQ_API_KEY=your_groq_api_key_here
-GROQ_MODEL=llama-3.3-70b-versatile
 
-# ── Option B: Google Gemini ──
-GOOGLE_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL=gemini-1.5-flash
+# Database passwords — use secure random values
+LANGFUSE_DB_PASSWORD=change_me_to_random_string
+AEGRA_DB_PASSWORD=change_me_to_random_string
+DB_PASSWORD=change_me_to_random_string
+NEXTAUTH_SECRET=change_me_to_random_string
+SALT=change_me_to_random_string
 
-# ── Option C: Ollama (Local) ──
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=llama3.2
-
-# ── Optional: Cloud RAG Upgrade (Pinecone) ──
-# VECTOR_STORE=pinecone
-# PINECONE_API_KEY=your_pinecone_key_here
-# PINECONE_INDEX_NAME=your_index_name_here
-
-# ── Optional: Search Engine API (SerpAPI) ──
-# SERPAPI_API_KEY=your_serpapi_key_here
+# Vector Store Selection
+VECTOR_STORE=pgvector
+DB_URL=postgresql://postgres:postgres@localhost:5434/enterprise_app
 ```
 
-### 3. Run the Backend & Infrastructure
+---
 
-#### Option A: Docker (Recommended)
-This launches the FastAPI application along with a Redis server container. The Dockerfile pre-downloads the HuggingFace embedding model so the first query runs instantly.
+## 🐳 Running with Docker (Recommended)
+
+Start all services in detached mode. Docker Compose builds and coordinates all 7 backend services:
+
 ```bash
-docker-compose up --build
+# First-time setup — build images:
+docker-compose build api
+docker-compose build aegra
+
+# Start all services:
+docker-compose up -d
 ```
 
-#### Option B: Running Locally
-Ensure you have Redis installed and running on `localhost:6379`, then start the backend:
+### Detached Service Architecture & Ports:
+
+| Service | Port / URL | Engine / Image | Description |
+|---|---|---|---|
+| **FastAPI Backend** | `http://localhost:8000` | `enterprise-multi-agent-ai-system-api` | Primary API, JWT auth & Agent Protocol |
+| **Aegra Layer** | `http://localhost:8001` | `enterprise-multi-agent-ai-system-aegra` | LangGraph Studio compatibility layer |
+| **Langfuse Portal** | `http://localhost:4000` | `langfuse/langfuse:2` | Tracing & observability dashboard |
+| **Application DB** | `localhost:5434` | `pgvector/pgvector:pg16` | PostgreSQL for auth, business DB & vectors |
+| **Aegra DB** | `localhost:5433` | `postgres:16-alpine` | PostgreSQL isolated for Aegra states |
+| **Langfuse DB** | `localhost:5432` | `postgres:16-alpine` | PostgreSQL for Langfuse tracing logs |
+| **Redis Cache** | `localhost:6379` | `redis:7-alpine` | Key-value store for session memory |
+
 ```bash
-# Create and activate virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+# Rebuild a single service after code changes:
+docker-compose up --build -d api
 
-# Install requirements
-pip install -r requirements.txt
+# Stop all services:
+docker-compose down
 
-# Run FastAPI app
+# Stop and wipe databases (full reset):
+docker-compose down -v
+```
+
+---
+
+## 💻 Running Locally (without Docker)
+
+If you have PostgreSQL (with `pgvector` extension) and Redis running locally on your system:
+
+### 1. Install uv
+```powershell
+# Windows PowerShell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+### 2. Initialize and Sync Environment
+```bash
+# Synchronize core dependencies
+uv sync
+
+# Synchronize dev environments (pytest + aegra-cli — requires Python >= 3.12)
+uv sync --all-groups
+```
+
+### 3. Run FastAPI Backend
+```bash
+# Windows
+.venv\Scripts\activate
+uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
+
+# macOS / Linux
+source .venv/bin/activate
 uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-### 4. Run the Next.js Frontend
+---
+
+## 🌐 Running the Frontend
+
+Navigate to the frontend folder, install dependencies, and launch the development dashboard:
+
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-Open [http://localhost:3000](http://localhost:3000) in your browser to access the dashboard.
-
----
-
-## 📡 API Reference
-
-### Health & Settings Check
-* **Endpoint**: `GET /health`
-* **Response**: Checks active configuration and reports database connectivity status.
-```json
-{
-  "status": "ok",
-  "version": "1.0.0",
-  "llm_provider": "groq",
-  "llm_model": "llama-3.3-70b-versatile",
-  "llm_type": "cloud_free"
-}
-```
-
-### Execute Agent Task (Synchronous)
-* **Endpoint**: `POST /run`
-* **Request Payload**:
-```json
-{
-  "user_input": "Analyse Widget A sales from South region and write a summary.",
-  "session_id": "session-123",
-  "output_format": "markdown"
-}
-```
-* **Response**: Returns final generated output, evaluation score, and execution steps history.
-
-### Stream Agent Task (SSE Streaming)
-* **Endpoint**: `POST /run/stream`
-* **Request Payload**: Same as `/run`.
-* **Description**: Returns a Server-Sent Events stream emitting updates during step execution:
-  - `event: start` -> initial job context
-  - `event: step_start` -> active graph node (e.g. `planner`, `executor`, etc.)
-  - `event: step_done` -> completed step message
-  - `event: done` -> final state output, validation metadata, and status
-  - `event: error` -> exception trace context
-
-### Upload File to Vector Store
-* **Endpoint**: `POST /upload`
-* **Content-Type**: `multipart/form-data`
-* **Parameters**: `file` (Supported: `.txt`, `.pdf`, `.csv`, `.md`)
-* **Description**: Receives document and registers chunks in background thread to the configured Vector Store.
-
-### Submit Human Review (HITL)
-* **Endpoint**: `POST /human-review`
-* **Request Payload**:
-```json
-{
-  "job_id": "a9073cde",
-  "feedback": "Add more details about Widget B next quarter projections.",
-  "approved": false
-}
-```
-* **Description**: Unpauses and resumes a graph workflow currently suspended at a human verification node.
-
-### Offline Output Evaluation (LLM-as-Judge)
-* **Endpoint**: `POST /evaluate/{job_id}`
-* **Description**: Evaluates job performance metrics against 4 pillars: *Faithfulness*, *Answer Relevance*, *Completeness*, and *Clarity*.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
 ## 🧪 Running Tests
 
-The test suite validates agent state parsing, JSON schemas, workflow transitions, and API response contracts.
+You can run the full Pytest suite within the `uv` environment:
 
-To execute tests:
 ```bash
-pytest tests/ -v
+# Run pytest directly via uv
+uv run pytest tests/ -v
 ```
 
-For detailed console tracebacks:
-```bash
-python tests/test_agents.py
-```
+> [!NOTE]
+> All **67 tests are passing successfully** with zero errors:
+> - `TestConfig` (4 tests)
+> - `TestAgentState` (3 tests)
+> - `TestPlanner` (4 tests)
+> - `TestExecutor` (3 tests)
+> - `TestValidator` (6 tests)
+> - `TestWorkflowRouting` (5 tests)
+> - `TestEvalPipeline` (3 tests)
+> - `TestAPI` (5 tests)
+> - `TestAgentProtocolAPI` (8 tests)
+> - `TestLangfuseObservability` (5 tests)
+> - `TestAegraIntegration` (1 test)
+> - `TestDeepAgentsResearch` (4 tests)
+> - `TestAuth` (9 tests)
+> - `TestPostgreSQL` (7 tests)
 
 ---
 
-## 🧠 Key Technical Highlights
+## 🔐 Authentication
 
-1. **Robust JSON Parsing**: Local and smaller model outputs frequently suffer from loose JSON formats or markdown wrapper errors. The system utilizes a regex-supported extraction fallback in `planner.py` and `validator.py` to ensure stable graph execution.
-2. **ReAct Tool Loop**: The Executor Node leverages classic ReAct (Reason-Action) patterns using `langchain-classic` templates. This enables standard tool calls without requiring OpenAI-specific function calling parameters, allowing compatibility with any open-weights LLM.
-3. **Graceful Degradation**: If tool-use calls fail due to token limits or structural errors, the Executor automatically falls back to direct inference (`_run_simple_executor`), compiling answers based on retrieved context.
-4. **Data Seeding**: On start, `tools/db_tool.py` automatically checks for the existence of `data/enterprise.db` and auto-seeds tables (`sales` and `employees`) to enable immediate analysis query actions.
+All API endpoints (except `GET /health` and `/auth/*`) are protected by a two-layer authentication mechanism. Callers must authenticate using **either** of the following:
 
----
+### 1. Static API Key (Service-to-Service)
+Set the `API_KEY` environment variable in `.env`. Programmatic clients can pass this token in the header:
+```http
+Authorization: Bearer <your_configured_api_key>
+```
 
-## 🛠️ Tech Stack
+### 2. JWT Authentication (Dashboard Users)
+Dashboard users must register and log in to obtain a signed JWT token:
 
-* **Orchestration**: `LangGraph` · `LangChain`
-* **Backend API**: `FastAPI` · `Uvicorn` · `SSE-Starlette`
-* **Database & Storage**: `SQLite` · `FAISS` · `Pinecone (Optional)` · `Redis`
-* **Frontend Dashboard**: `Next.js 14` · `React` · `Tailwind CSS` · `Lucide Icons` · `TypeScript`
-* **Embeddings & Inference**: `HuggingFace sentence-transformers` · `Groq Cloud` · `Google Gemini API` · `Ollama (Local)`
-* **Quality Assurance**: `Pytest` · `LLM-as-Judge`
+* **Register a New User**:
+  ```http
+  POST /auth/register
+  Content-Type: application/json
+
+  {
+    "username": "admin",
+    "email": "admin@example.com",
+    "password": "securepassword"
+  }
+  ```
+* **Login to Obtain JWT**:
+  ```http
+  POST /auth/login
+  Content-Type: application/json
+
+  {
+    "username": "admin",
+    "password": "securepassword"
+  }
+  ```
+  Returns:
+  ```json
+  {
+    "access_token": "<signed_jwt_token>",
+    "token_type": "bearer"
+  }
+  ```
+* **Call Protected Endpoints**:
+  Pass the returned JWT token as a Bearer token in the `Authorization` header:
+  ```http
+  Authorization: Bearer <signed_jwt_token>
+  ```

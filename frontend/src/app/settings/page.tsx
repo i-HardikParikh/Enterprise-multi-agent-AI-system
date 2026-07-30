@@ -62,12 +62,36 @@ const PROVIDERS = [
 export default function SettingsPage() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [apiStatus, setApiStatus] = useState<"loading" | "ok" | "error">("loading");
+  const [token, setToken] = useState("");
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
-  useEffect(() => {
+  const checkHealth = () => {
+    setApiStatus("loading");
     fetchHealth()
       .then((h) => { setHealth(h); setApiStatus("ok"); })
-      .catch(() => setApiStatus("error"));
+      .catch(() => { setHealth(null); setApiStatus("error"); });
+  };
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setToken(localStorage.getItem("api_token") || "");
+    }
+    checkHealth();
   }, []);
+
+  const handleSaveToken = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (typeof window !== "undefined") {
+      if (token.trim()) {
+        localStorage.setItem("api_token", token.trim());
+      } else {
+        localStorage.removeItem("api_token");
+      }
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2000);
+      checkHealth();
+    }
+  };
 
   return (
     <div className="min-h-screen bg-grid">
@@ -142,6 +166,46 @@ export default function SettingsPage() {
                   </pre>
                 </div>
               )}
+            </div>
+          </section>
+
+          {/* Authentication Settings */}
+          <section>
+            <h2 className="font-display font-semibold text-ink-200 mb-4">
+              Authentication Settings
+            </h2>
+            <div className="bg-ink-900/60 border border-ink-800 rounded-2xl p-5">
+              <p className="text-ink-300 text-sm mb-4">
+                Enter your configured <strong className="text-ink-100">API Key</strong> or <strong className="text-ink-100">JWT Token</strong> below to authorize the frontend application with the backend services.
+              </p>
+              <form onSubmit={handleSaveToken} className="space-y-4">
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="api-token" className="text-ink-500 text-[10px] font-mono uppercase tracking-wider">
+                    Bearer Token / API Key
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      id="api-token"
+                      type="password"
+                      placeholder="Paste your token or API Key..."
+                      value={token}
+                      onChange={(e) => setToken(e.target.value)}
+                      className="bg-ink-950/80 border border-ink-800 rounded-xl px-3 py-2 text-ink-100 text-xs font-mono placeholder-ink-600 focus:outline-none focus:border-violet-500/50 flex-grow"
+                    />
+                    <button
+                      type="submit"
+                      className="bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-ink-100 rounded-xl px-4 py-2 text-xs font-mono font-semibold transition-colors flex-shrink-0"
+                    >
+                      Save Key
+                    </button>
+                  </div>
+                </div>
+                {saveSuccess && (
+                  <p className="text-emerald-400 text-xs font-mono flex items-center gap-1.5 animate-fade-in">
+                    <CheckCircle size={12} /> Key saved successfully! Re-checking status...
+                  </p>
+                )}
+              </form>
             </div>
           </section>
 
