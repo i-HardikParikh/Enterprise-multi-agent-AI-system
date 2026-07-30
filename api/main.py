@@ -126,8 +126,14 @@ def set_run(run_id: str, state: dict):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("app.startup — warming up graph")
-    get_graph()
-    create_users_table()
+    try:
+        get_graph()
+    except Exception as e:
+        logger.warning("app.startup.get_graph_failed", error=str(e))
+    try:
+        create_users_table()
+    except Exception as e:
+        logger.warning("app.startup.create_users_table_failed", error=str(e))
     # Warm up and seed business database
     try:
         from tools.db_tool import _get_conn
@@ -135,7 +141,7 @@ async def lifespan(app: FastAPI):
         conn.close()
         logger.info("api.business_db_initialized")
     except Exception as e:
-        logger.error("api.business_db_initialization_failed", error=str(e))
+        logger.warning("api.business_db_initialization_failed", error=str(e))
     logger.info("app.ready")
     yield
     logger.info("app.shutdown")
