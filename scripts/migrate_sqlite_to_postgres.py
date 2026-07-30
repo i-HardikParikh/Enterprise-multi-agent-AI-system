@@ -2,22 +2,23 @@
 scripts/migrate_sqlite_to_postgres.py — SQLite to PostgreSQL Migration Script with Validation Gates
 """
 import sqlite3
-import psycopg
 import sys
-from pathlib import Path
+
+import psycopg
 
 # Add project root to sys.path
 sys.path.append("F:\\Projects-Git\\Enterprise-multi-agent-AI-system")
 
-from config import get_settings
 from auth.models import create_users_table
+from config import get_settings
 from tools.db_tool import _get_conn
+
 
 def migrate():
     settings = get_settings()
     sqlite_db_path = "data/enterprise.db"
     
-    print(f"Starting database migration...")
+    print("Starting database migration...")
     print(f"Source SQLite database: {sqlite_db_path}")
     print(f"Target PostgreSQL database: {settings.db_url}")
     
@@ -101,7 +102,7 @@ def migrate():
         print("==============================================")
         
     except Exception as e:
-        print(f"\n[FATAL ERROR] Migration failed: {str(e)}")
+        print(f"\n[FATAL ERROR] Migration failed: {e!s}")
         print("Rolling back PostgreSQL transactions...")
         pg_conn.rollback()
         sys.exit(1)

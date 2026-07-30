@@ -4,13 +4,13 @@ tools/db_tool.py — Database Query Tool
 Uses SQLite for demo (swap connection string for PostgreSQL in production).
 Auto-seeds demo sales + employees data on first run.
 """
-import psycopg
-from psycopg.rows import dict_row
 import json
 import re
+
+import psycopg
 import structlog
-from pathlib import Path
 from langchain_core.tools import tool
+from psycopg.rows import dict_row
 
 logger = structlog.get_logger()
 
@@ -106,7 +106,7 @@ def query_database(sql_query: str) -> str:
             return "Query returned no results."
         return json.dumps([dict(r) for r in rows], indent=2, default=str)
     except Exception as e:
-        return f"Database error: {str(e)}"
+        return f"Database error: {e!s}"
 
 
 @tool
@@ -140,7 +140,7 @@ def list_tables() -> str:
         conn.close()
         return "\n\n".join(out)
     except Exception as e:
-        return f"Failed to list tables: {str(e)}"
+        return f"Failed to list tables: {e!s}"
 
 
 def get_db_tool():

@@ -56,3 +56,14 @@ environments = [
     "sys_platform == 'win32'",
     "sys_platform == 'linux'"
 ]
+
+[tool.ruff.lint]
+ignore = [
+    "E501",   # line too long
+    "E402",   # module level import not at top of file
+    "BLE001", # blind except Exception
+    "DTZ003", # utcnow without tz
+    "B008",   # function call in argument defaults (FastAPI Depends/Security)
+    "I001",   # unsorted imports
+    "RUF010"  # explicit conversion flag
+]

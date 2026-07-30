@@ -1,16 +1,15 @@
 """
 memory/vector_store.py — Vector Store + RAG Memory using PostgreSQL pgvector
 """
-import os
 import json
-import structlog
 from pathlib import Path
-import psycopg
-from psycopg.rows import dict_row
 
-from langchain_community.document_loaders import TextLoader, PyPDFLoader, CSVLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+import psycopg
+import structlog
+from langchain_community.document_loaders import CSVLoader, PyPDFLoader, TextLoader
 from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from psycopg.rows import dict_row
 
 from config import get_settings
 from graph.state import AgentState

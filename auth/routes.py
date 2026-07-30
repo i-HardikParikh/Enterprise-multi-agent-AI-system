@@ -6,7 +6,6 @@ auth/routes.py — Authentication endpoints.
   GET  /auth/me        — Return current authenticated user info
 """
 import psycopg
-
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from auth.dependencies import require_auth

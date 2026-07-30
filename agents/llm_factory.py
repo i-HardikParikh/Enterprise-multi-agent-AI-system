@@ -12,6 +12,7 @@ Usage:
     llm = get_llm(temperature=0.3, streaming=True)
 """
 import structlog
+
 from config import get_settings
 
 logger = structlog.get_logger()

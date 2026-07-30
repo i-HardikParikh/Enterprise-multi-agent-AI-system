@@ -11,11 +11,12 @@ Works with Groq, Gemini, and Ollama.
 """
 import json
 import re
-import structlog
 
-from langchain_core.prompts import ChatPromptTemplate
+import structlog
 from langchain_core.messages import SystemMessage
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
+
 from agents.llm_factory import get_llm
 from graph.state import AgentState, TaskStatus, ValidationResult
 
@@ -211,12 +212,12 @@ def validator_node(state: AgentState, config: RunnableConfig = None) -> dict:
             factual_accuracy=0.0,
             task_completion=0.0,
             format_compliance=0.0,
-            feedback=f"Validator crashed: {str(e)}",
+            feedback=f"Validator crashed: {e!s}",
             requires_retry=False,
         )
         return {
             "validation_result": validation,
-            "error_log": [f"Validator error: {str(e)}"],
+            "error_log": [f"Validator error: {e!s}"],
             "final_output": p_out,
             "status": TaskStatus.AWAITING_HUMAN,
             "requires_human_review": True,

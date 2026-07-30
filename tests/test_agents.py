@@ -2,9 +2,11 @@
 tests/test_agents.py — Unit and Integration Tests
 Works with all 3 free providers: Groq, Gemini, Ollama
 """
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
-from graph.state import AgentState, TaskStatus, SubTask
+
+from graph.state import AgentState, SubTask, TaskStatus
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -110,7 +112,6 @@ class TestPlanner:
 
     def test_fallback_plan_on_error(self, base_state):
         """Planner should create fallback tasks if LLM fails."""
-        from agents.planner import planner_node
         with patch("agents.planner.get_llm") as mock_llm:
             mock_response = MagicMock()
             mock_response.content = "INVALID JSON !!!"
@@ -180,8 +181,7 @@ class TestValidator:
             **base_state,
             "execution_results": [{"agent_type": "writer", "output": "some text"}],
         }
-        if "user_input" in state:
-            del state["user_input"]
+        state.pop("user_input", None)
         result = validator_node(state)
         assert result["status"] == TaskStatus.AWAITING_HUMAN
         assert result["requires_human_review"] is True
@@ -248,6 +248,7 @@ class TestAPI:
     @pytest.fixture
     def client(self):
         from fastapi.testclient import TestClient
+
         from api.main import app
         from auth.dependencies import require_auth
         from auth.schemas import UserOut
@@ -292,6 +293,7 @@ class TestAgentProtocolAPI:
     @pytest.fixture
     def client(self):
         from fastapi.testclient import TestClient
+
         from api.main import app
         from auth.dependencies import require_auth
         from auth.schemas import UserOut
@@ -363,7 +365,7 @@ class TestAgentProtocolAPI:
         thread_id = res.json()["thread_id"]
 
         # Mock the background execution so it doesn't try to invoke real LLM
-        with patch("api.main._execute_graph_run") as mock_exec:
+        with patch("api.main._execute_graph_run"):
             res = client.post(f"/threads/{thread_id}/runs", json={"input": {"user_input": "Run input"}})
             assert res.status_code == 200
             run = res.json()
@@ -383,7 +385,7 @@ class TestAgentProtocolAPI:
         thread_id = res.json()["thread_id"]
 
         # Directly insert an active run lock in thread metadata
-        from api.main import get_thread, set_thread, set_run
+        from api.main import get_thread, set_run, set_thread
         thread = get_thread(thread_id)
         assert thread is not None
         
@@ -408,9 +410,9 @@ class TestAgentProtocolAPI:
         assert "already has an active run" in res.json()["detail"]
 
     def test_redis_ttl_expiry(self, client):
-        from api.main import set_thread, get_thread
+        from api.main import get_thread, set_thread
         from config import get_settings
-        settings = get_settings()
+        get_settings()
         
         # Test that set_thread works
         thread_id = "test-ttl-thread"
@@ -422,7 +424,7 @@ class TestAgentProtocolAPI:
         assert stored == thread_data
 
     def test_hitl_resume_paths_consistency(self, client):
-        from api.main import set_thread, set_run
+        from api.main import set_run, set_thread
         
         # Path 1: Old /human-review endpoint
         thread_id_1 = "thread-old-hitl"
@@ -572,22 +574,24 @@ class TestLangfuseObservability:
             mock_client.flush.assert_called_once()
 
     def test_node_config_propagation(self):
-        from agents.planner import planner_node
-        from agents.executor import executor_node
-        from agents.validator import validator_node
-        from langchain_core.runnables import RunnableConfig
+        from typing import Any
+
         from langchain_core.language_models.chat_models import SimpleChatModel
-        from langchain_core.messages import AIMessage, BaseMessage
-        from typing import List, Optional, Any
+        from langchain_core.messages import BaseMessage
+        from langchain_core.runnables import RunnableConfig
+
+        from agents.executor import executor_node
+        from agents.planner import planner_node
+        from agents.validator import validator_node
         
         class DummyLLM(SimpleChatModel):
             content: str = '{"reasoning": "ok", "sub_tasks": [], "output_format": "markdown"}'
-            called_config: Optional[Any] = None
+            called_config: Any | None = None
 
-            def _call(self, messages: List[BaseMessage], stop: Optional[List[str]] = None, run_manager: Optional[Any] = None, **kwargs: Any) -> str:
+            def _call(self, messages: list[BaseMessage], stop: list[str] | None = None, run_manager: Any | None = None, **kwargs: Any) -> str:
                 return self.content
 
-            def invoke(self, input: Any, config: Optional[Any] = None, **kwargs: Any) -> Any:
+            def invoke(self, input: Any, config: Any | None = None, **kwargs: Any) -> Any:
                 self.called_config = config
                 return super().invoke(input, config, **kwargs)
 
@@ -597,12 +601,12 @@ class TestLangfuseObservability:
 
         class DummyValidatorLLM(SimpleChatModel):
             content: str = '{"factual_accuracy": 0.8, "task_completion": 0.8, "format_compliance": 0.8, "passed": true, "reasoning": "ok", "critique": "none"}'
-            called_config: Optional[Any] = None
+            called_config: Any | None = None
 
-            def _call(self, messages: List[BaseMessage], stop: Optional[List[str]] = None, run_manager: Optional[Any] = None, **kwargs: Any) -> str:
+            def _call(self, messages: list[BaseMessage], stop: list[str] | None = None, run_manager: Any | None = None, **kwargs: Any) -> str:
                 return self.content
 
-            def invoke(self, input: Any, config: Optional[Any] = None, **kwargs: Any) -> Any:
+            def invoke(self, input: Any, config: Any | None = None, **kwargs: Any) -> Any:
                 self.called_config = config
                 return super().invoke(input, config, **kwargs)
 
@@ -661,8 +665,9 @@ class TestLangfuseObservability:
 
 class TestAegraIntegration:
     def test_graph_export_for_aegra(self):
-        from graph.workflow import graph
         from langgraph.graph.state import CompiledStateGraph
+
+        from graph.workflow import graph
         
         # Verify graph is exported at module level
         assert graph is not None
@@ -703,10 +708,12 @@ class TestDeepAgentsResearch:
 
     def test_research_planning_produces_valid_result(self):
         """Phase 1→2→3 pipeline returns required keys with non-empty output."""
-        from agents.executor import _run_deepagent_research_executor
+        from typing import Any
+
         from langchain_core.language_models.chat_models import SimpleChatModel
         from langchain_core.messages import BaseMessage
-        from typing import List, Optional, Any
+
+        from agents.executor import _run_deepagent_research_executor
 
         todo_json = (
             '[{"step": 1, "query": "chip shortage 2024", "tool": "web_search"}, '
@@ -718,8 +725,8 @@ class TestDeepAgentsResearch:
 
         class PlanThenSynthesisLLM(SimpleChatModel):
             """Returns todo JSON on first call, synthesis text on second."""
-            def _call(self, messages: List[BaseMessage], stop: Optional[List[str]] = None,
-                      run_manager: Optional[Any] = None, **kwargs: Any) -> str:
+            def _call(self, messages: list[BaseMessage], stop: list[str] | None = None,
+                      run_manager: Any | None = None, **kwargs: Any) -> str:
                 call_count["n"] += 1
                 return todo_json if call_count["n"] == 1 else synthesis_text
 
@@ -790,10 +797,12 @@ class TestDeepAgentsResearch:
         This prevents silent downstream inconsistency in tool_calls_log
         (AgentState) and the /status API response.
         """
-        from agents.executor import _run_deepagent_research_executor
+        from typing import Any
+
         from langchain_core.language_models.chat_models import SimpleChatModel
         from langchain_core.messages import BaseMessage
-        from typing import List, Optional, Any
+
+        from agents.executor import _run_deepagent_research_executor
 
         # Required schema — matches _run_executor() lines 117-120
         REQUIRED_TOOL_CALL_KEYS = {"tool", "input", "output"}
@@ -802,8 +811,8 @@ class TestDeepAgentsResearch:
         call_count = {"n": 0}
 
         class FixedLLM(SimpleChatModel):
-            def _call(self, messages: List[BaseMessage], stop: Optional[List[str]] = None,
-                      run_manager: Optional[Any] = None, **kwargs: Any) -> str:
+            def _call(self, messages: list[BaseMessage], stop: list[str] | None = None,
+                      run_manager: Any | None = None, **kwargs: Any) -> str:
                 call_count["n"] += 1
                 return todo_json if call_count["n"] == 1 else "Final answer."
 
@@ -853,8 +862,9 @@ class TestFileTools:
         assert "Error: Path traversal detected. Access denied." in res
 
     def test_read_file_normal_exists(self):
-        from tools.file_tool import read_file, UPLOAD_DIR
         import uuid
+
+        from tools.file_tool import UPLOAD_DIR, read_file
         filename = f"test_{uuid.uuid4().hex}.txt"
         file_path = UPLOAD_DIR / filename
         file_path.write_text("hello sandbox", encoding="utf-8")
@@ -909,6 +919,7 @@ class TestAuth:
     def raw_client(self):
         """Client WITHOUT any auth override — real auth enforcement."""
         from fastapi.testclient import TestClient
+
         from api.main import app
         from auth.models import create_users_table
         create_users_table()
@@ -920,10 +931,11 @@ class TestAuth:
     def auth_client(self):
         """Client with auth bypassed for setup helpers."""
         from fastapi.testclient import TestClient
+
         from api.main import app
         from auth.dependencies import require_auth
-        from auth.schemas import UserOut
         from auth.models import create_users_table
+        from auth.schemas import UserOut
         create_users_table()
         app.dependency_overrides[require_auth] = lambda: UserOut(
             id=1, username="testuser", email="test@example.com", is_active=True, created_at=""

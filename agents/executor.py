@@ -11,17 +11,18 @@ Uses ReAct-style prompting compatible with ALL free LLMs
 """
 import json
 import re
+
 import structlog
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_classic.agents import AgentExecutor, create_react_agent
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
 from agents.llm_factory import get_llm
-from graph.state import AgentState, TaskStatus, SubTask
-from tools.search_tool import get_search_tool
-from tools.rag_tool import get_rag_tool
+from graph.state import AgentState, SubTask, TaskStatus
 from tools.db_tool import get_db_tool
 from tools.file_tool import get_file_tool
+from tools.rag_tool import get_rag_tool
+from tools.search_tool import get_search_tool
 
 logger = structlog.get_logger()
 
@@ -110,7 +111,7 @@ def _run_deepagent_research_executor(
     context: str,
     retrieved_context: str,
     output_format: str,
-    config: dict = None,
+    config: dict | None = None,
 ) -> dict:
     """
     deepagents-inspired three-phase research executor (Path B, no deepagents install).
@@ -156,7 +157,7 @@ def _run_deepagent_research_executor(
         try:
             observation = tool_fn.invoke(step_query, config)
         except Exception as e:
-            observation = f"Tool error ({step_tool_name}): {str(e)}"
+            observation = f"Tool error ({step_tool_name}): {e!s}"
 
         tool_calls.append({
             "tool":   step_tool_name,          # str
@@ -225,7 +226,7 @@ EXECUTOR_CONFIG = {
 # ── Core Executor ─────────────────────────────────────────────────────────────
 
 def _run_executor(agent_type: str, task: SubTask, context: str,
-                  retrieved_context: str, output_format: str, config: dict = None) -> dict:
+                  retrieved_context: str, output_format: str, config: dict | None = None) -> dict:
     """Run one executor agent using ReAct prompting."""
     cfg = EXECUTOR_CONFIG.get(agent_type, EXECUTOR_CONFIG["research"])
     llm = get_llm(temperature=cfg["temperature"])
@@ -277,7 +278,7 @@ def _run_executor(agent_type: str, task: SubTask, context: str,
 
 
 def _run_simple_executor(agent_type: str, task: SubTask, context: str,
-                          retrieved_context: str, output_format: str, config: dict = None) -> dict:
+                          retrieved_context: str, output_format: str, config: dict | None = None) -> dict:
     """
     Fallback: simple LLM call without tool-use.
     Used when ReAct agent fails (e.g., Ollama small models).
@@ -378,7 +379,7 @@ def executor_node(state: AgentState, config: RunnableConfig = None) -> dict:
             return {
                 "sub_tasks": updated_tasks,
                 "current_task_index": idx + 1,
-                "error_log": [f"Executor [{task['agent_type']}] failed: {str(e2)}"],
+                "error_log": [f"Executor [{task['agent_type']}] failed: {e2!s}"],
                 "step_history": [f"❌ Executor [{task['agent_type']}]: {str(e2)[:80]}"],
             }
 

@@ -1,6 +1,8 @@
 import os
 import uuid
+
 import structlog
+
 from config import get_settings
 
 logger = structlog.get_logger()
@@ -36,7 +38,7 @@ def get_langfuse_client():
                 logger.warning("observability.langfuse_client_init_failed", error=str(e))
     return _langfuse_client
 
-def get_callbacks(trace_id: str, session_id: str = None) -> list:
+def get_callbacks(trace_id: str, session_id: str | None = None) -> list:
     callbacks = []
     settings = get_settings()
     pub_key = os.getenv("LANGFUSE_PUBLIC_KEY") or getattr(settings, "langfuse_public_key", None)
@@ -75,7 +77,7 @@ def log_validation_score(trace_id: str, accuracy: float, completion: float, comp
         except Exception as e:
             logger.warning("observability.log_validation_scores_failed", trace_id=trace_id, error=str(e))
 
-def log_hitl_event(trace_id: str, event_type: str, feedback: str = None, approved: bool = None):
+def log_hitl_event(trace_id: str, event_type: str, feedback: str | None = None, approved: bool | None = None):
     client = get_langfuse_client()
     if client:
         try:

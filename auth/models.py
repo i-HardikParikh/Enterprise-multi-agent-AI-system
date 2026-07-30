@@ -2,8 +2,8 @@
 auth/models.py — PostgreSQL users table management.
 """
 import psycopg
-from psycopg.rows import dict_row
 import structlog
+from psycopg.rows import dict_row
 
 logger = structlog.get_logger()
 
@@ -38,6 +38,6 @@ def create_users_table() -> None:
             logger.info("auth.create_users_table_success")
     except Exception as e:
         logger.error("auth.create_users_table_failed", error=str(e))
-        raise e
+        raise
     finally:
         conn.close()

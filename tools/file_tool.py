@@ -1,8 +1,9 @@
 """
 tools/file_tool.py — File Read / Write Tools
 """
-import structlog
 from pathlib import Path
+
+import structlog
 from langchain_core.tools import tool
 
 logger = structlog.get_logger()
@@ -33,7 +34,7 @@ def read_file(file_path: str) -> str:
     try:
         return full.read_text(encoding="utf-8")
     except Exception as e:
-        return f"Error reading file: {str(e)}"
+        return f"Error reading file: {e!s}"
 
 
 @tool

@@ -10,31 +10,29 @@ Endpoints:
   POST /human-review     — Submit HITL feedback
   POST /evaluate/{id}    — Run eval pipeline on a completed job
 """
-import uuid
 import asyncio
-import structlog
+import json
+import uuid
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Depends
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from sse_starlette.sse import EventSourceResponse
-from pydantic import BaseModel
-from typing import AsyncGenerator
-
-from graph.workflow import get_graph
-from graph.state import AgentState, TaskStatus
-from memory.vector_store import get_vector_store
-from evals.eval_pipeline import run_evaluation
-from agents.llm_factory import get_provider_info
-from graph.observability import get_callbacks, log_hitl_event, safe_uuid
-from auth.models import create_users_table
-from auth.dependencies import require_auth
-from auth.schemas import UserOut
-from auth.routes import router as auth_router
-import json
 import redis
+import structlog
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from sse_starlette.sse import EventSourceResponse
+
+from agents.llm_factory import get_provider_info
+from auth.dependencies import require_auth
+from auth.models import create_users_table
+from auth.routes import router as auth_router
 from config import get_settings
+from evals.eval_pipeline import run_evaluation
+from graph.observability import get_callbacks, log_hitl_event, safe_uuid
+from graph.state import AgentState, TaskStatus
+from graph.workflow import get_graph
+from memory.vector_store import get_vector_store
 
 logger = structlog.get_logger()
 _settings = get_settings()
@@ -323,7 +321,7 @@ async def _execute_graph_run(thread_id: str, run_id: str, assistant_id: str, use
         run_data = get_run(run_id)
         if run_data:
             run_data["status"] = "failed"
-            run_data["final_output"] = f"Execution error: {str(e)}"
+            run_data["final_output"] = f"Execution error: {e!s}"
             run_data["updated_at"] = datetime.datetime.utcnow().isoformat()
             set_run(run_id, run_data)
         
@@ -484,8 +482,8 @@ async def upload_document(
     file: UploadFile = File(...),
 ):
     """Upload a document (.txt, .pdf, .csv) to the RAG knowledge base."""
-    from pathlib import Path
     import shutil
+    from pathlib import Path
 
     allowed = {".txt", ".pdf", ".csv", ".md"}
     ext = Path(file.filename).suffix.lower()
@@ -766,8 +764,8 @@ async def create_run_stream(thread_id: str, req: RunCreateRequest):
     set_thread(thread_id, thread)
 
     async def event_generator() -> AsyncGenerator[dict, None]:
-        import json
         import datetime
+        import json
         import uuid
         graph = get_graph()
         config = {
@@ -862,7 +860,7 @@ async def create_run_stream(thread_id: str, req: RunCreateRequest):
             run_data = get_run(run_id)
             if run_data:
                 run_data["status"] = "failed"
-                run_data["final_output"] = f"Execution error: {str(e)}"
+                run_data["final_output"] = f"Execution error: {e!s}"
                 run_data["updated_at"] = datetime.datetime.utcnow().isoformat()
                 set_run(run_id, run_data)
             

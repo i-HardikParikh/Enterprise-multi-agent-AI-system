@@ -7,6 +7,7 @@ Fallback: DuckDuckGo (completely free, no key needed)
 import httpx
 import structlog
 from langchain_core.tools import tool
+
 from config import get_settings
 
 logger = structlog.get_logger()
@@ -70,7 +71,7 @@ def web_search(query: str) -> str:
             return "\n\n".join(parts)
         return f"No results found for: {query}. Try rephrasing."
     except Exception as e:
-        return f"Search unavailable: {str(e)}. Use knowledge base instead."
+        return f"Search unavailable: {e!s}. Use knowledge base instead."
 
 
 def get_search_tool():

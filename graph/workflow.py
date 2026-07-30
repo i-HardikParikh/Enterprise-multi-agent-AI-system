@@ -16,20 +16,18 @@ Flow:
       ├─ score < 75%  ────► planner (retry, max 3x) 🔄
       └─ needs human  ────► human_review ⏸  → END
 """
-import os
-import sqlite3
-import structlog
 import threading
-from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.sqlite import SqliteSaver
-from psycopg_pool import ConnectionPool
-from langgraph.checkpoint.postgres import PostgresSaver
-from psycopg.rows import dict_row
 
-from graph.state import AgentState, TaskStatus
-from agents.planner import planner_node
+import structlog
+from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.graph import END, StateGraph
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
+
 from agents.executor import executor_node
-from agents.validator import validator_node, human_review_node
+from agents.planner import planner_node
+from agents.validator import human_review_node, validator_node
+from graph.state import AgentState, TaskStatus
 from memory.vector_store import retrieval_node
 
 logger = structlog.get_logger()

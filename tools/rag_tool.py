@@ -34,7 +34,7 @@ def rag_search(query: str) -> str:
         return "\n\n---\n\n".join(results)
     except Exception as e:
         logger.error("rag_search.error", error=str(e))
-        return f"Knowledge base search failed: {str(e)}"
+        return f"Knowledge base search failed: {e!s}"
 
 
 def get_rag_tool():

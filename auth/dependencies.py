@@ -10,9 +10,8 @@ Usage:
     def run_agent(current_user: UserOut = Depends(require_auth)):
         ...
 """
-from typing import Optional
 
-from fastapi import Depends, HTTPException, Security, status
+from fastapi import HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
 
@@ -34,7 +33,7 @@ _SERVICE_USER = UserOut(
 
 
 def require_auth(
-    credentials: Optional[HTTPAuthorizationCredentials] = Security(_bearer_scheme),
+    credentials: HTTPAuthorizationCredentials | None = Security(_bearer_scheme),
 ) -> UserOut:
     """Validate the incoming Bearer token.
 
@@ -60,7 +59,7 @@ def require_auth(
     # ── Layer 2: JWT ──────────────────────────────────────────────────────────
     try:
         payload = decode_token(token)
-        user_id_str: Optional[str] = payload.get("sub")
+        user_id_str: str | None = payload.get("sub")
         if user_id_str is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

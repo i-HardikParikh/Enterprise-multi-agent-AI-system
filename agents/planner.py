@@ -4,12 +4,13 @@ agents/planner.py — Planner Agent
 Breaks user input into ordered sub-tasks with dependency mapping.
 Works with Groq, Gemini, and Ollama.
 """
-import uuid
 import json
 import re
+import uuid
+
 import structlog
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import SystemMessage
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
 from agents.llm_factory import get_llm
@@ -167,6 +168,6 @@ def planner_node(state: AgentState, config: RunnableConfig = None) -> dict:
             "output_format": "markdown",
             "current_task_index": 0,
             "status": TaskStatus.IN_PROGRESS,
-            "error_log": [f"Planner used fallback plan: {str(e)}"],
+            "error_log": [f"Planner used fallback plan: {e!s}"],
             "step_history": [f"⚠️ Planner: Used fallback plan ({str(e)[:60]})"],
         }

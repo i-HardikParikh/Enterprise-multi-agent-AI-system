@@ -1,14 +1,13 @@
 """
 auth/service.py — Password hashing, JWT creation/decoding, and user CRUD.
 """
-import psycopg
 from datetime import datetime, timedelta
-from typing import Optional
 
 # ── passlib / bcrypt compatibility patch ─────────────────────────────────────
 # passlib 1.7.4 references bcrypt.__about__.__version__ which was removed in
 # bcrypt 4.0.  Re-inject the attribute so passlib can read the version cleanly.
 import bcrypt as _bcrypt_mod
+
 if not hasattr(_bcrypt_mod, "__about__"):
     _bcrypt_mod.__about__ = type(
         "about", (), {"__version__": _bcrypt_mod.__version__}
@@ -49,7 +48,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 # ── JWT helpers ───────────────────────────────────────────────────────────────
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
     """Encode a signed JWT. `data` should contain at minimum {"sub": "<user_id>"}."""
     payload = data.copy()
     expire = datetime.utcnow() + (
@@ -101,7 +100,7 @@ def register_user(username: str, email: str, password: str) -> UserOut:
         conn.close()
 
 
-def authenticate_user(username: str, password: str) -> Optional[UserOut]:
+def authenticate_user(username: str, password: str) -> UserOut | None:
     """Return UserOut if credentials are valid, else None."""
     conn = get_db()
     try:
@@ -117,7 +116,7 @@ def authenticate_user(username: str, password: str) -> Optional[UserOut]:
         conn.close()
 
 
-def get_user_by_id(user_id: int) -> Optional[UserOut]:
+def get_user_by_id(user_id: int) -> UserOut | None:
     """Fetch a user by primary key."""
     conn = get_db()
     try:

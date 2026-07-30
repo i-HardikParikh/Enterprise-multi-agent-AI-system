@@ -2,8 +2,8 @@
 scripts/reingest_documents.py — Re-ingestion script for pgvector storage
 """
 import sys
-import os
 from pathlib import Path
+
 import psycopg
 
 # Add project root to sys.path
@@ -11,6 +11,7 @@ sys.path.append("F:\\Projects-Git\\Enterprise-multi-agent-AI-system")
 
 from config import get_settings
 from memory.vector_store import get_vector_store
+
 
 def reingest():
     settings = get_settings()
@@ -53,7 +54,7 @@ def reingest():
         else:
             print("No files found in 'data/uploads'. Initializing with system default seed document...")
             # Trigger standard seed check in similarity_search or direct insert
-            docs = store.similarity_search("initialize seed query", k=1)
+            store.similarity_search("initialize seed query", k=1)
             
             cur.execute("SELECT COUNT(*) FROM embeddings;")
             db_count = cur.fetchone()[0]
@@ -65,7 +66,7 @@ def reingest():
         print("==============================================")
         
     except Exception as e:
-        print(f"\n[FATAL ERROR] Re-ingestion failed: {str(e)}")
+        print(f"\n[FATAL ERROR] Re-ingestion failed: {e!s}")
         sys.exit(1)
     finally:
         cur.close()

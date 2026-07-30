@@ -6,9 +6,10 @@ Supports 3 free LLM providers:
   - Gemini  (cloud, free 1500 req/day)
   - Ollama  (local, 100% free, no internet)
 """
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
 from functools import lru_cache
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -75,6 +76,6 @@ class Settings(BaseSettings):
     serpapi_api_key: str = Field(default="")
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     return Settings()

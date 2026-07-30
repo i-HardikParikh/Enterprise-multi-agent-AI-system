@@ -5,9 +5,10 @@ The single shared state object that flows through every node.
 All agents read from and write to this TypedDict.
 """
 from __future__ import annotations
-from typing import TypedDict, Annotated, Optional
-from enum import Enum
+
 import operator
+from enum import Enum
+from typing import Annotated, TypedDict
 
 
 class TaskStatus(str, Enum):
@@ -24,8 +25,8 @@ class SubTask(TypedDict):
     description:  str
     agent_type:   str          # "research" | "analysis" | "writer"
     status:       TaskStatus
-    result:       Optional[str]
-    error:        Optional[str]
+    result:       str | None
+    error:        str | None
 
 
 class ValidationResult(TypedDict):
@@ -44,7 +45,7 @@ class AgentState(TypedDict):
     session_id:          str
 
     # ── Planning ───────────────────────────────────────────────────────────
-    plan:                Optional[str]
+    plan:                str | None
     sub_tasks:           list[SubTask]
     task_dependencies:   dict[str, list[str]]
 
@@ -55,23 +56,23 @@ class AgentState(TypedDict):
     tool_calls_log:      Annotated[list[dict], operator.add]
 
     # ── Memory / RAG ───────────────────────────────────────────────────────
-    retrieved_context:   Optional[str]
-    memory_summary:      Optional[str]
+    retrieved_context:   str | None
+    memory_summary:      str | None
 
     # ── Validation ─────────────────────────────────────────────────────────
-    validation_result:   Optional[ValidationResult]
+    validation_result:   ValidationResult | None
     retry_count:         int
 
     # ── Output ─────────────────────────────────────────────────────────────
-    final_output:        Optional[str]
+    final_output:        str | None
     output_format:       str        # "markdown" | "json"
 
     # ── Control Flow ───────────────────────────────────────────────────────
     status:              TaskStatus
     error_log:           Annotated[list[str], operator.add]
     requires_human_review: bool
-    human_feedback:      Optional[str]
-    approved:            Optional[bool]
+    human_feedback:      str | None
+    approved:            bool | None
 
     # ── Observability ──────────────────────────────────────────────────────
     step_history:        Annotated[list[str], operator.add]
