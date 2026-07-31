@@ -160,7 +160,12 @@ def get_checkpointer() -> PostgresSaver:
 def get_graph():
     global _graph_app
     if _graph_app is None:
-        cp = get_checkpointer()
+        try:
+            cp = get_checkpointer()
+        except Exception as e:
+            logger.warning("postgres.checkpointer_failed_using_memory_saver", error=str(e))
+            from langgraph.checkpoint.memory import MemorySaver
+            cp = MemorySaver()
         _graph_app = build_graph(checkpointer=cp)
     return _graph_app
 

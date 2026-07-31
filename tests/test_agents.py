@@ -530,14 +530,15 @@ class TestLangfuseObservability:
                 return default
             mock_getenv.side_effect = side_effect
             
+            import os
             with patch("langfuse.langchain.CallbackHandler") as mock_handler:
                 callbacks = get_callbacks("test-trace-123")
                 assert len(callbacks) == 1
                 mock_handler.assert_called_once_with(
-                    public_key="pk-lf-test",
-                    secret_key="sk-lf-test",
-                    host="http://localhost:4000"
+                    public_key="pk-lf-test"
                 )
+                assert os.environ.get("LANGFUSE_SECRET_KEY") == "sk-lf-test"
+                assert os.environ.get("LANGFUSE_HOST") == "http://localhost:4000"
 
     def test_log_validation_score(self):
         from graph.observability import log_validation_score

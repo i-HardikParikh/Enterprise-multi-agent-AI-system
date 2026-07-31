@@ -48,12 +48,15 @@ def get_callbacks(trace_id: str, session_id: str | None = None) -> list:
     # Check if keys are set and not placeholder values
     if pub_key and sec_key and "placeholder" not in pub_key and "placeholder" not in sec_key:
         try:
+            if sec_key:
+                os.environ["LANGFUSE_SECRET_KEY"] = sec_key
+            if host:
+                os.environ["LANGFUSE_HOST"] = host
+            
+            get_langfuse_client()
+            
             from langfuse.langchain import CallbackHandler
-            handler = CallbackHandler(
-                public_key=pub_key,
-                secret_key=sec_key,
-                host=host,
-            )
+            handler = CallbackHandler(public_key=pub_key)
             callbacks.append(handler)
             logger.info("observability.langfuse_callbacks_registered", trace_id=trace_id)
         except Exception as e:
