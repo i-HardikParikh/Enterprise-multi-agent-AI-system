@@ -123,25 +123,25 @@ def set_run(run_id: str, state: dict):
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    logger.info("app.startup — warming up graph")
+async def _init_databases_bg():
+    logger.info("api.database_initialization_bg_started")
     try:
-        get_graph()
+        await asyncio.to_thread(create_users_table)
+        logger.info("api.users_table_initialized")
     except Exception as e:
-        logger.warning("app.startup.get_graph_failed", error=str(e))
-    try:
-        create_users_table()
-    except Exception as e:
-        logger.warning("app.startup.create_users_table_failed", error=str(e))
-    # Warm up and seed business database
+        logger.warning("api.startup.create_users_table_failed", error=str(e))
     try:
         from tools.db_tool import _get_conn
-        conn = _get_conn()
+        conn = await asyncio.to_thread(_get_conn)
         conn.close()
         logger.info("api.business_db_initialized")
     except Exception as e:
         logger.warning("api.business_db_initialization_failed", error=str(e))
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("app.startup — starting background database initialization")
+    asyncio.create_task(_init_databases_bg())
     logger.info("app.ready")
     yield
     logger.info("app.shutdown")
