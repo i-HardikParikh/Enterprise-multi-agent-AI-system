@@ -82,6 +82,12 @@ jobs:
             -e LLM_PROVIDER=groq \
             -e GROQ_API_KEY=test \
             enterprise-agent:${{ github.sha }}
-          sleep 8
-          curl -f http://localhost:8000/health
+          sleep 12
+          docker ps -a
+          if ! curl -f http://localhost:8000/health; then
+            echo "==== Container Logs ===="
+            docker logs agent
+            echo "==== End of Logs ===="
+            exit 1
+          fi
           docker stop agent
