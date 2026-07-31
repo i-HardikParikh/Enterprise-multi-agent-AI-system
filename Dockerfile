@@ -8,6 +8,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 COPY pyproject.toml uv.lock ./
 # Sync only core production dependencies (no dev group -> excludes aegra-cli)
 RUN uv sync --frozen --no-dev
+ENV HF_HOME=/app/.cache
 # Pre-download HF models into the virtual env
 RUN .venv/bin/python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
 COPY . .
